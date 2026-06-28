@@ -111,15 +111,16 @@ confidence = source_prior
 
 StatsBomb Open Data 可用于历史研究，使用时遵守其署名和许可要求；实时世界杯数据需另行确认。
 
-## 9. 发布前检查清单
+## 9. 报告导出前检查清单
 
 - [ ] 每个事实句有来源。
 - [ ] 赛程、比分、时间和球队 ID 通过结构化校验。
 - [ ] 转述链已尽量回溯到原始来源。
 - [ ] 冲突、未知和截至时间均被明确显示。
 - [ ] 没有超范围引用、未授权图片或伪造引语。
-- [ ] 编辑已经查看低置信度和高影响主张。
-- [ ] 文章保留生成版本、审批人和更正入口。
+- [ ] 报告明确展示低置信度和高影响主张。
+- [ ] 报告保留生成版本、用户改写和更正入口。
+- [ ] 导出前提示用户复核；系统没有社媒发布凭据或自动发布动作。
 
 ## 10. 参考入口
 
@@ -129,4 +130,3 @@ StatsBomb Open Data 可用于历史研究，使用时遵守其署名和许可要
 - [NewsAPI 文档](https://newsapi.org/docs)
 - [GDELT DOC 2.0](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/)
 - [StatsBomb Open Data](https://github.com/statsbomb/open-data)
-
