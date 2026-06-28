@@ -13,6 +13,7 @@
 ## 文档入口
 
 - [产品需求文档](docs/product/PRD.md)
+- [MVP 体验与页面规格](docs/product/UX_SPEC.md)
 - [系统架构](docs/architecture/SYSTEM_DESIGN.md)
 - [Harness / Loop 架构决策](docs/adr/0001-harness-loop-architecture.md)
 - [预测模型设计](docs/ml/MATCH_PREDICTION.md)

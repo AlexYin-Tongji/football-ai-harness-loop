@@ -1,0 +1,40 @@
+name: Feature
+description: 提出可验收的产品或工程能力
+title: "feat: "
+labels: ["type:feature", "status:triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 用户问题
+      description: 谁在什么场景遇到了什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 范围
+      description: 包含与不包含什么？
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 使用可验证的条目描述完成条件。
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: 风险类别
+      multiple: true
+      options:
+        - 内容准确性
+        - 数据许可 / 抓取
+        - 模型 / 评估
+        - 隐私 / 安全
+        - 无特殊风险
+    validations:
+      required: true
+

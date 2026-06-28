@@ -1,0 +1,30 @@
+name: Bug
+description: 报告可复现的问题
+title: "fix: "
+labels: ["type:bug", "status:triage"]
+body:
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响
+      description: 哪些用户、内容、比赛或工作流受到影响？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: input
+    id: trace
+    attributes:
+      label: Run / Trace ID
+      description: 请勿粘贴密钥、完整新闻正文或用户数据。
+
