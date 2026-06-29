@@ -7,16 +7,16 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote
 
-
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+IGNORED_PARTS = {".git", ".venv", "node_modules"}
 
 
 def markdown_files() -> list[Path]:
     return sorted(
         path
         for path in ROOT.rglob("*.md")
-        if ".git" not in path.parts and "node_modules" not in path.parts
+        if not IGNORED_PARTS.intersection(path.parts)
     )
 
 
@@ -65,4 +65,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
