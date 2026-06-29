@@ -78,6 +78,8 @@ Harness 负责确定性控制：路由 Skill、装载截止时点、调用工具
 
 项目已实现真实 OpenAI-compatible `/chat/completions` 调用、JSON mode、thinking 开关、V4 Flash/Pro 路由、超时、错误脱敏和 token 统计。密钥不进入浏览器、日志、Git 或报告。2026-06-29 的实测请求已到达 DeepSeek，但当前环境密钥返回 HTTP 401，因此结论是“协议已接通、凭据未通过”；更换有效密钥即可复测，无需改代码。
 
+外部数据联调同样区分“实现”与“凭据/网络可用”：Source Registry 已通过真实 MCP stdio 初始化并列出 2 个 tools、2 个 resources；当前未配置 football-data.org token；GDELT 直连冒烟请求在本机网络 15 秒内超时，因此未把联网取数标记为通过。
+
 ## 8. 验证与下一步
 
 自动测试覆盖 API、报告 schema、预测概率、引用、预测委员会、后台权限、来源策略和 DeepSeek 适配器。浏览器验证覆盖桌面和移动端首页、类型切换与报告生成。
