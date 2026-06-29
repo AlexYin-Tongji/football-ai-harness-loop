@@ -4,7 +4,7 @@
 
 当前阶段：MVP 纵向切片开发。
 
-已开始实现第一个纵向切片：[Report API](services/report_api/README.md)。默认 mock 模式可在没有 API Key 的情况下运行，切换配置后调用 DeepSeek V4。
+已实现可运行的响应式工作台与 [Report API](services/report_api/README.md)。默认 mock 模式可在没有 API Key 的情况下跑通页面、Harness、质量门和报告返回；切换配置后调用 DeepSeek V4。
 
 ## 产品能力
 
@@ -18,6 +18,7 @@
 - [产品需求文档](docs/product/PRD.md)
 - [MVP 体验与页面规格](docs/product/UX_SPEC.md)
 - [系统架构](docs/architecture/SYSTEM_DESIGN.md)
+- [Harness / Loop / Memory / Skills / MCP 蓝图](docs/architecture/HARNESS_LOOP_BLUEPRINT.md)
 - [Harness / Loop 架构决策](docs/adr/0001-harness-loop-architecture.md)
 - [API-first 报告决策](docs/adr/0002-api-first-report-workbench.md)
 - [预测模型设计](docs/ml/MATCH_PREDICTION.md)

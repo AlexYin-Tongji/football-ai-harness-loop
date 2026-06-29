@@ -7,7 +7,9 @@ from services.report_api.domain import GeneratedReport, ReportRequest
 PROMPT_VERSION = "report-v1"
 
 
-def build_messages(request: ReportRequest) -> list[dict[str, str]]:
+def build_messages(
+    request: ReportRequest, skill_instructions: str | None = None
+) -> list[dict[str, str]]:
     schema = GeneratedReport.model_json_schema()
     system = (
         "你是中文足球研究报告助手。只使用用户提供的结构化资料，不依赖记忆补充实时事实。"
@@ -17,6 +19,8 @@ def build_messages(request: ReportRequest) -> list[dict[str, str]]:
         "所有事实段落必须引用存在的 evidence_ids。"
         "输出必须符合以下 JSON Schema：\n" + json.dumps(schema, ensure_ascii=False)
     )
+    if skill_instructions:
+        system += "\n\n已激活的版本化 Skill：\n" + skill_instructions
     user_payload = request.model_dump(mode="json")
     user = (
         "请根据下面的 JSON 资料生成报告。match_prediction 类型必须给出 prediction；"

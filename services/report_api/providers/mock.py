@@ -4,26 +4,83 @@ from services.report_api.providers.base import LLMRequest, LLMResult
 
 
 class MockProvider:
-    """Deterministic local provider for development and CI."""
+    """Deterministic, clearly labelled demo provider for local product work."""
 
     async def generate_json(self, request: LLMRequest) -> LLMResult:
         report_type = request.metadata["report_type"]
-        evidence_ids = request.metadata["evidence_ids"]
+        evidence_id = request.metadata["evidence_ids"][0]
         subject = request.metadata["subject"]
 
+        templates = {
+            "world_cup_daily": {
+                "summary": (
+                    "这是一份世界杯日报演示。正式版本将把官方赛果、晋级形势与"
+                    "当天新闻整理为一条清晰叙事，并让每个事实都能回到来源。"
+                ),
+                "sections": [
+                    (
+                        "30 秒摘要",
+                        "日报优先回答三个问题：昨天发生了什么、对晋级路径有何影响、"
+                        "今天最值得关注哪几场比赛。当前内容为本地演示。",
+                    ),
+                    (
+                        "今日观察",
+                        "正式数据接入后，这里将按北京时间列出赛程，并结合阵容、"
+                        "休息时间和球队消息给出观看重点。",
+                    ),
+                ],
+            },
+            "transfer_daily": {
+                "summary": (
+                    "这是一份转会情报演示。系统会把重复转载压缩成事件时间线，"
+                    "并区分传闻、接触、报价、协议、体检、官宣与辟谣。"
+                ),
+                "sections": [
+                    (
+                        "今日实质进展",
+                        "正式版本只保留状态发生变化的消息，不把相同传闻的重复转载"
+                        "包装成多条进展。",
+                    ),
+                    (
+                        "可信度与冲突",
+                        "每个事件都会展示独立来源数量、转载关系、冲突来源和信息截止时间。",
+                    ),
+                ],
+            },
+            "match_prediction": {
+                "summary": (
+                    "这是一份比赛预测演示。概率用于表达不确定性，不是确定赛果或"
+                    "投注建议；正式版本会同时展示支持因素、反方证据和未知项。"
+                ),
+                "sections": [
+                    (
+                        "比赛判断",
+                        "AI 会基于截止时间前的球队实力、近期表现、人员可用性、休息"
+                        "与战术资料形成判断，并明确数据缺口。",
+                    ),
+                    (
+                        "风险提示",
+                        "首发变化、样本不足和淘汰赛偶然性都可能改变判断；开赛后"
+                        "赛前版本将被冻结。",
+                    ),
+                ],
+            },
+        }
+        template = templates[report_type]
         output: dict[str, object] = {
-            "title": f"{subject}｜AI 足球报告（演示）",
-            "executive_summary": "这是 mock 模式生成的可验证报告，用于本地开发。",
+            "title": f"{subject}｜AI 足球报告",
+            "executive_summary": template["summary"],
             "sections": [
                 {
-                    "heading": "核心信息",
-                    "body": (
-                        "报告内容仅依据请求中提供的资料，正式环境将调用 DeepSeek V4。"
-                    ),
-                    "evidence_ids": [evidence_ids[0]],
+                    "heading": heading,
+                    "body": body,
+                    "evidence_ids": [evidence_id],
                 }
+                for heading, body in template["sections"]
             ],
-            "warnings": ["当前使用 mock provider，不代表真实比赛或转会判断。"],
+            "warnings": [
+                "当前使用本地 mock 数据，仅用于验证页面和工作流，不代表真实事实。"
+            ],
             "prediction": None,
         }
 
@@ -39,10 +96,10 @@ class MockProvider:
                 ),
                 "scorelines": ["1-0", "1-1", "0-1"],
                 "supporting_factors": [
-                    {"claim": "演示支持因素", "evidence_ids": [evidence_ids[0]]}
+                    {"claim": "演示支持因素", "evidence_ids": [evidence_id]}
                 ],
                 "counter_factors": [
-                    {"claim": "演示反方因素", "evidence_ids": [evidence_ids[0]]}
+                    {"claim": "演示反方因素", "evidence_ids": [evidence_id]}
                 ],
                 "unknowns": ["mock 模式没有真实球队上下文"],
                 "confidence": "low",

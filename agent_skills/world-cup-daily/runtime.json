@@ -1,0 +1,13 @@
+{
+  "id": "world-cup-daily",
+  "version": "1.0.0",
+  "report_type": "world_cup_daily",
+  "max_model_rounds": 4,
+  "max_tool_rounds": 6,
+  "phases": ["match_data", "discover", "extract_rank", "compose", "review"],
+  "mcp_servers": ["football-data", "news-evidence", "source-registry"],
+  "memory_read": ["user_preferences", "source_reliability", "previous_daily_report"],
+  "memory_write": ["run_summary", "previous_daily_report", "user_feedback"],
+  "quality_gates": ["official_score_check", "timezone_check", "source_coverage", "privacy"]
+}
+

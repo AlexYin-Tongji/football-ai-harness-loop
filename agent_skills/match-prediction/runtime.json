@@ -1,0 +1,13 @@
+{
+  "id": "match-prediction",
+  "version": "1.0.0",
+  "report_type": "match_prediction",
+  "max_model_rounds": 4,
+  "max_tool_rounds": 5,
+  "phases": ["snapshot", "balance_evidence", "judge", "validate", "review"],
+  "mcp_servers": ["football-data", "news-evidence", "source-registry"],
+  "memory_read": ["user_preferences", "source_reliability", "prediction_performance"],
+  "memory_write": ["run_summary", "prediction_snapshot", "user_feedback"],
+  "quality_gates": ["cutoff_integrity", "probability_sum", "balanced_evidence", "source_coverage", "privacy"]
+}
+
