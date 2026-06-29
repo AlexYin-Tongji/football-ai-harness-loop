@@ -13,7 +13,7 @@ description: 基于赛前截止时点证据生成中文比赛预测报告；用�
 
 1. `source-registry.list_approved_sources(match_data)` 确认数据源权限。
 2. `football-data.list_competition_matches` 获取赛程、状态和赛果事实。
-3. 必要时用 `news-discovery.search_football_news` 发现阵容或伤停候选消息；它只负责发现，未经原站或官方来源复核不得升级为事实。
+3. 必要时用 `rss-news.search_guardian_football` 或 `news-discovery.search_football_news` 发现阵容、伤停候选消息；发现结果未经原站或官方来源复核不得升级为事实。
 
 ## 有界 Loop
 

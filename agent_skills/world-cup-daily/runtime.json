@@ -5,7 +5,7 @@
   "max_model_rounds": 3,
   "max_tool_rounds": 7,
   "phases": ["collect", "verify", "cluster", "draft", "validate", "human_review"],
-  "mcp_servers": ["source-registry", "football-data", "news-discovery"],
+  "mcp_servers": ["source-registry", "football-data", "rss-news", "news-discovery"],
   "memory_read": ["source_reliability", "published_story_index"],
   "memory_write": ["run_summary", "story_clusters", "report_version"],
   "quality_gates": ["cutoff_integrity", "official_result_check", "citation_integrity", "duplicate_story", "privacy"]

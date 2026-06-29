@@ -71,6 +71,23 @@ class ReportRequest(BaseModel):
         return self
 
 
+class ConsumerReportRequest(BaseModel):
+    report_type: ReportType
+    subject: str = Field(min_length=3, max_length=300)
+    report_date: date
+    length: ReportLength = ReportLength.STANDARD
+    focus: list[str] = Field(default_factory=list, max_length=8)
+    match_stage: MatchStage | None = None
+
+    @model_validator(mode="after")
+    def validate_context(self) -> ConsumerReportRequest:
+        if self.report_type == ReportType.MATCH_PREDICTION and not self.match_stage:
+            raise ValueError("match_stage is required for match prediction reports")
+        if self.report_type != ReportType.MATCH_PREDICTION and self.match_stage:
+            raise ValueError("match_stage is only valid for match prediction reports")
+        return self
+
+
 class ReportSection(BaseModel):
     heading: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=12000)

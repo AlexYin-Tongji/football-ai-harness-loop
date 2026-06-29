@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from pydantic import ValidationError
 
 from services.report_api.domain import (
@@ -29,8 +31,18 @@ def validate_generated_report(
         raise ReportValidationError(errors) from exc
 
     errors: list[str] = []
+    if not re.search(r"[\u4e00-\u9fff]", report.title):
+        errors.append("title must be written in Simplified Chinese")
+    if len(re.findall(r"[\u4e00-\u9fff]", report.executive_summary)) < 10:
+        errors.append("executive_summary must be written in Simplified Chinese")
     allowed_ids = {item.id for item in request.evidence}
     referenced_ids: set[str] = set()
+
+    visible_text = " ".join(
+        [report.executive_summary, *(section.body for section in report.sections)]
+    )
+    if any(evidence_id in visible_text for evidence_id in allowed_ids):
+        errors.append("visible report text must not expose internal evidence IDs")
 
     for section in report.sections:
         referenced_ids.update(section.evidence_ids)

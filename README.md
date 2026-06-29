@@ -4,9 +4,14 @@
 
 V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AGENT_CORE_V3_REPORT.md)。
 
-当前阶段：MVP 纵向切片开发。
+当前阶段：可使用的本地 Beta。真实 RSS → DeepSeek V4 → 引用/概率质量门 → 编辑/导出闭环已跑通；商业上线仍需取得数据许可并接入第二独立来源。
 
-已实现可运行的响应式工作台与 [Report API](services/report_api/README.md)。默认 mock 模式可在没有 API Key 的情况下跑通页面、Harness、质量门和报告返回；切换配置后调用 DeepSeek V4。
+已实现可运行的响应式产品页与 [Report API](services/report_api/README.md)。默认 mock 模式用于开发测试；使用 `scripts/run_deepseek.ps1` 可安全输入密钥并启动真实研究模式，密钥不会写入项目文件。
+
+```powershell
+.\scripts\run_deepseek.ps1
+# 浏览器打开 http://127.0.0.1:8000
+```
 
 ## 产品能力
 
@@ -26,6 +31,7 @@ V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AG
 - [预测模型设计](docs/ml/MATCH_PREDICTION.md)
 - [数据源与内容合规](docs/data/SOURCE_POLICY.md)
 - [世界杯冲刺路线图](docs/product/ROADMAP.md)
+- [V4 严格产品评审与竞品差距](docs/product/V4_PRODUCT_REVIEW.md)
 - [研发协作规范](CONTRIBUTING.md)
 
 ## 原则

@@ -3,6 +3,7 @@ import asyncio
 import httpx
 
 from services.report_api.config import Settings
+from services.report_api.domain import Evidence
 from services.report_api.main import create_app
 
 
@@ -159,3 +160,56 @@ def test_harness_run_endpoint_completes_and_is_queryable() -> None:
     assert len(run.json()["run"]["steps"]) == 5
     assert history.status_code == 200
     assert len(history.json()) == 1
+
+
+def test_research_endpoint_collects_real_evidence(monkeypatch) -> None:
+    async def fake_collect(_request, **_kwargs):
+        return [
+            Evidence(
+                id="publisher-1",
+                title="World Cup report",
+                url="https://www.theguardian.com/football/report",
+                published_at="2026-06-29T07:00:00Z",
+                source_name="The Guardian Football",
+                summary="A current World Cup report for endpoint testing.",
+            ),
+            Evidence(
+                id="publisher-2",
+                title="World Cup preview",
+                url="https://www.theguardian.com/football/preview",
+                published_at="2026-06-29T06:00:00Z",
+                source_name="The Guardian Football",
+                summary="A current preview for endpoint testing.",
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "services.report_api.main.collect_guardian_evidence", fake_collect
+    )
+    response = asyncio.run(
+        post_json(
+            "/v1/research/reports",
+            {
+                "report_type": "world_cup_daily",
+                "subject": "FIFA World Cup 2026 daily",
+                "report_date": "2026-06-30",
+                "focus": ["results"],
+            },
+        )
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["evidence"]) == 2
+    assert payload["run"]["tool_rounds_used"] == 1
+
+
+def test_product_status_hides_model_details() -> None:
+    response = asyncio.run(get("/v1/product/status"))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "generation_ready": False,
+        "mode": "demo",
+        "source": "Guardian Football RSS",
+    }

@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="球脉 FootPulse，用可信证据生成你的每日足球报告。" />
     <title>球脉 FootPulse AI｜看懂今天的足球</title>
-    <link rel="stylesheet" href="/assets/styles.css" />
-    <link rel="stylesheet" href="/assets/layout-fix.css" />
-    <script src="/assets/app.js" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=6" />
+    <link rel="stylesheet" href="/assets/layout-fix.css?v=6" />
+    <script src="/assets/app.js?v=6" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -53,9 +53,9 @@
         </div>
 
         <form class="creator" id="report-form">
-          <div class="creator-copy"><span>YOUR BRIEF</span><h3>告诉球脉你关心的主题</h3><p id="brief-hint">适合整理过去 24 小时的赛果、晋级变化和今日重点比赛。</p></div>
+          <div class="creator-copy"><span>YOUR BRIEF</span><h3>告诉球脉你关心的主题</h3><p id="brief-hint">适合整理过去 24 小时的赛果、晋级变化和今日重点比赛。</p><div class="readiness" id="readiness"><i></i><b>正在检查实时服务</b></div></div>
           <div class="creator-fields">
-            <label><span>报告主题</span><input id="subject" maxlength="300" value="世界杯每日观察｜淘汰赛焦点与今日看点" required /></label>
+              <label><span>报告主题</span><input id="subject" maxlength="300" value="FIFA World Cup 2026｜今日重点与淘汰赛观察" required /></label>
             <div class="field-row">
               <label><span>报告日期</span><input id="report-date" type="date" required /></label>
               <label><span>阅读长度</span><select id="length"><option value="concise">精简 · 3 分钟</option><option value="standard" selected>标准 · 6 分钟</option><option value="deep">深度 · 10 分钟</option></select></label>
@@ -63,13 +63,14 @@
             <label id="match-stage-field" hidden><span>比赛阶段</span><select id="match-stage"><option value="group">小组赛</option><option value="knockout" selected>淘汰赛</option></select></label>
             <label><span>特别关注 <small>可选，用逗号分隔</small></span><input id="focus" value="昨日赛果, 晋级形势, 今日看点" /></label>
             <button class="generate" id="generate-button" type="submit"><span>生成我的报告</span><b>→</b></button>
+            <div class="research-progress" id="research-progress" hidden><span class="active">检索近期资料</span><span>交叉整理证据</span><span>撰写并校验</span></div>
             <p class="fine-print">AI 会整理证据并给出初稿；发布前请由你核验和编辑。</p><p class="form-error" id="form-error" role="alert"></p>
           </div>
         </form>
       </section>
 
       <section class="result" id="result" hidden>
-        <div class="result-head"><div><p class="kicker dark">YOUR REPORT</p><span id="result-meta"></span></div><div><button id="copy-report" type="button">复制全文</button><button id="download-report" type="button">保存报告</button></div></div>
+        <div class="result-head"><div><p class="kicker dark">YOUR REPORT</p><span id="result-meta"></span></div><div><button id="edit-report" type="button">编辑报告</button><button id="copy-report" type="button">复制全文</button><button id="download-report" type="button">保存报告</button></div></div>
         <article id="report-output"></article>
       </section>
 

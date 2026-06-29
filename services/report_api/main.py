@@ -10,7 +10,15 @@ from fastapi.staticfiles import StaticFiles
 
 from services.report_api.admin import AdminCatalog, data_catalog
 from services.report_api.config import Settings
-from services.report_api.domain import ReportRequest, ReportResponse
+from services.report_api.domain import (
+    ConsumerReportRequest,
+    ReportRequest,
+    ReportResponse,
+)
+from services.report_api.evidence import (
+    EvidenceCollectionError,
+    collect_guardian_evidence,
+)
 from services.report_api.harness.mcp import load_mcp_capabilities
 from services.report_api.harness.memory import InMemoryRunMemory
 from services.report_api.harness.models import (
@@ -87,6 +95,14 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok", "provider": settings.llm_provider}
 
+    @app.get("/v1/product/status")
+    async def product_status() -> dict[str, bool | str]:
+        return {
+            "generation_ready": settings.llm_provider == "deepseek",
+            "mode": "live" if settings.llm_provider == "deepseek" else "demo",
+            "source": "Guardian Football RSS",
+        }
+
     @app.get("/v1/admin/catalog", response_model=AdminCatalog)
     async def admin_catalog(
         x_admin_token: str | None = Header(default=None),
@@ -116,6 +132,33 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except LLMProviderError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/v1/research/reports", response_model=HarnessRunResponse)
+    async def research_report(
+        request: ConsumerReportRequest,
+    ) -> HarnessRunResponse:
+        try:
+            evidence = await collect_guardian_evidence(
+                request,
+                max_items={"concise": 6, "standard": 10, "deep": 12}[
+                    request.length.value
+                ],
+            )
+            report_request = ReportRequest(
+                **request.model_dump(),
+                data_cutoff=datetime.now(UTC),
+                evidence=evidence,
+            )
+            return await harness.run(report_request, tool_rounds_used=1)
+        except EvidenceCollectionError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ReportGenerationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LLMProviderError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="AI 服务暂时无法完成报告，请稍后重试",
+            ) from exc
 
     @app.get("/v1/runs", response_model=list[HarnessTrace])
     async def list_runs() -> list[HarnessTrace]:

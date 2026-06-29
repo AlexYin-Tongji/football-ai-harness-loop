@@ -44,8 +44,8 @@ def request_payload() -> ReportRequest:
 
 def report_output(home_win: float = 0.4) -> dict[str, object]:
     return {
-        "title": "A vs B prediction",
-        "executive_summary": "Evidence-backed test prediction.",
+        "title": "A 对 B 比赛预测",
+        "executive_summary": "这是一份基于输入证据生成的中文比赛预测测试摘要。",
         "sections": [
             {
                 "heading": "Context",

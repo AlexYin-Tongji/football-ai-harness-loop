@@ -5,7 +5,7 @@
   "max_model_rounds": 4,
   "max_tool_rounds": 8,
   "phases": ["discover", "resolve_sources", "cluster", "status_transition", "draft", "validate", "human_review"],
-  "mcp_servers": ["source-registry", "news-discovery"],
+  "mcp_servers": ["source-registry", "rss-news", "news-discovery"],
   "memory_read": ["source_reliability", "transfer_event_graph", "published_story_index"],
   "memory_write": ["run_summary", "transfer_event_graph", "report_version"],
   "quality_gates": ["source_approval", "citation_integrity", "status_vocabulary", "duplicate_story", "privacy"]

@@ -1,18 +1,306 @@
 "use strict";
 
 const $ = (selector) => document.querySelector(selector);
-const ui = {form:$("#report-form"),cards:[...document.querySelectorAll(".report-card")],subject:$("#subject"),date:$("#report-date"),length:$("#length"),focus:$("#focus"),stageField:$("#match-stage-field"),stage:$("#match-stage"),hint:$("#brief-hint"),button:$("#generate-button"),error:$("#form-error"),result:$("#result"),meta:$("#result-meta"),output:$("#report-output"),copy:$("#copy-report"),download:$("#download-report")};
-const defaults={world_cup_daily:{subject:"世界杯每日观察｜淘汰赛焦点与今日看点",focus:"昨日赛果, 晋级形势, 今日看点",hint:"适合整理过去 24 小时的赛果、晋级变化和今日重点比赛。"},transfer_daily:{subject:"夏季转会窗口｜今日重要进展",focus:"实质进展, 报价与协议, 冲突消息",hint:"把重复传闻聚合成事件，只保留状态或可信度真正变化的消息。"},match_prediction:{subject:"世界杯焦点战｜赛前预测报告",focus:"胜平负概率, 晋级倾向, 正反证据",hint:"由不同分析视角独立判断，再给出概率、反方证据和未知项。"}};
-let selected="world_cup_daily",latest=null;
-function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;return node}
-function choose(type){selected=type;ui.cards.forEach(card=>{const active=card.dataset.reportType===type;card.classList.toggle("selected",active);card.setAttribute("aria-checked",String(active))});Object.assign(ui.subject,{value:defaults[type].subject});ui.focus.value=defaults[type].focus;ui.hint.textContent=defaults[type].hint;ui.stageField.hidden=type!=="match_prediction"}
-function demoEvidence(cutoff){return[{id:`demo-${selected}-1`,title:"本地流程演示证据",url:`https://example.com/demo/${selected}`,published_at:new Date(Date.parse(cutoff)-3600000).toISOString(),source_name:"本地演示数据",summary:"这是一条用于验证产品流程的演示证据，不代表真实比赛、新闻或转会事实。"}]}
-function payload(){const cutoff=new Date().toISOString(),data={report_type:selected,subject:ui.subject.value.trim(),report_date:ui.date.value,data_cutoff:cutoff,length:ui.length.value,focus:ui.focus.value.split(/[,，]/).map(x=>x.trim()).filter(Boolean).slice(0,8),evidence:demoEvidence(cutoff)};if(selected==="match_prediction")data.match_stage=ui.stage.value;return data}
-function predictionView(p){if(!p)return null;const block=el("section","prediction-block");block.append(el("h3","","赛前概率判断"));const grid=el("div","prediction-grid");[["主胜",p.home_win],["平局",p.draw],["客胜",p.away_win]].forEach(([label,value])=>{const cell=el("div","prediction-cell");cell.append(el("strong","",`${Math.round(value*100)}%`),el("span","",label));grid.append(cell)});block.append(grid);return block}
-function render(data){latest=data;const report=data.report.report;ui.result.hidden=false;ui.meta.textContent=`生成于 ${new Date(data.report.generated_at).toLocaleString("zh-CN")} · ${data.run.evidence_count} 条来源证据`;ui.output.replaceChildren(el("h2","",report.title),el("p","report-summary",report.executive_summary));const prediction=predictionView(report.prediction);if(prediction)ui.output.append(prediction);report.sections.forEach(section=>{const wrap=el("section","report-section");wrap.append(el("h3","",section.heading),el("p","",section.body));const tags=el("div","evidence-tags");section.evidence_ids.forEach(id=>tags.append(el("span","",`来源 ${id}`)));wrap.append(tags);ui.output.append(wrap)});if(report.warnings.length){const box=el("section","warnings");box.append(el("strong","","发布前请复核"));report.warnings.forEach(item=>box.append(el("p","",item)));ui.output.append(box)}ui.result.scrollIntoView({behavior:"smooth",block:"start"})}
-function asText(){if(!latest)return"";const r=latest.report.report,lines=[`# ${r.title}`,"",r.executive_summary,""];r.sections.forEach(s=>lines.push(`## ${s.heading}`,"",s.body,""));return lines.join("\n")}
-ui.cards.forEach(card=>card.addEventListener("click",()=>choose(card.dataset.reportType)));
-ui.form.addEventListener("submit",async event=>{event.preventDefault();ui.error.textContent="";ui.button.disabled=true;ui.button.querySelector("span").textContent="正在整理与核验…";try{const response=await fetch("/v1/runs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});const data=await response.json();if(!response.ok)throw new Error(data.detail||"报告生成失败");render(data)}catch(error){ui.error.textContent=error.message||"暂时无法生成，请稍后再试。"}finally{ui.button.disabled=false;ui.button.querySelector("span").textContent="生成我的报告"}});
-ui.copy.addEventListener("click",async()=>{await navigator.clipboard.writeText(asText());ui.copy.textContent="已复制";setTimeout(()=>ui.copy.textContent="复制全文",1200)});
-ui.download.addEventListener("click",()=>{if(!latest)return;const blob=new Blob([asText()],{type:"text/markdown;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`footpulse-${latest.run.run_id}.md`;a.click();URL.revokeObjectURL(url)});
-const now=new Date(),offset=now.getTimezoneOffset()*60000;ui.date.value=new Date(now-offset).toISOString().slice(0,10);
+const ui = {
+  form: $("#report-form"),
+  cards: [...document.querySelectorAll(".report-card")],
+  subject: $("#subject"),
+  date: $("#report-date"),
+  length: $("#length"),
+  focus: $("#focus"),
+  stageField: $("#match-stage-field"),
+  stage: $("#match-stage"),
+  hint: $("#brief-hint"),
+  readiness: $("#readiness"),
+  button: $("#generate-button"),
+  progress: $("#research-progress"),
+  error: $("#form-error"),
+  result: $("#result"),
+  meta: $("#result-meta"),
+  output: $("#report-output"),
+  edit: $("#edit-report"),
+  copy: $("#copy-report"),
+  download: $("#download-report"),
+};
+
+const defaults = {
+  world_cup_daily: {
+    subject: "FIFA World Cup 2026｜今日重点与淘汰赛观察",
+    focus: "昨日赛果, 晋级形势, 今日看点",
+    hint: "整理近期世界杯赛果、晋级变化和今日重点比赛。",
+  },
+  transfer_daily: {
+    subject: "Summer transfer window｜今日重要进展",
+    focus: "实质进展, 报价与协议, 冲突消息",
+    hint: "聚合近期转会报道，只保留状态或可信度真正变化的消息。",
+  },
+  match_prediction: {
+    subject: "England vs Ghana｜World Cup 赛前预测",
+    focus: "胜平负概率, 晋级倾向, 正反证据",
+    hint: "请写明两队英文名；不同分析视角会独立判断，再给出概率与未知项。",
+  },
+};
+
+let selected = "world_cup_daily";
+let latest = null;
+let latestUsedEvidence = [];
+let editing = false;
+let progressTimer = null;
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function choose(type) {
+  selected = type;
+  ui.cards.forEach((card) => {
+    const active = card.dataset.reportType === type;
+    card.classList.toggle("selected", active);
+    card.setAttribute("aria-checked", String(active));
+  });
+  ui.subject.value = defaults[type].subject;
+  ui.focus.value = defaults[type].focus;
+  ui.hint.textContent = defaults[type].hint;
+  ui.stageField.hidden = type !== "match_prediction";
+}
+
+function requestPayload() {
+  const data = {
+    report_type: selected,
+    subject: ui.subject.value.trim(),
+    report_date: ui.date.value,
+    length: ui.length.value,
+    focus: ui.focus.value
+      .split(/[,，]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 8),
+  };
+  if (selected === "match_prediction") data.match_stage = ui.stage.value;
+  return data;
+}
+
+function predictionView(prediction) {
+  if (!prediction) return null;
+  const block = el("section", "prediction-block");
+  block.append(el("h3", "", "赛前概率判断"));
+  const grid = el("div", "prediction-grid");
+  [
+    ["主胜", prediction.home_win],
+    ["平局", prediction.draw],
+    ["客胜", prediction.away_win],
+  ].forEach(([label, value]) => {
+    const cell = el("div", "prediction-cell");
+    cell.append(
+      el("strong", "", `${Math.round(value * 100)}%`),
+      el("span", "", label),
+    );
+    grid.append(cell);
+  });
+  block.append(grid);
+  return block;
+}
+
+function editableNode(tag, className, text, exportKind) {
+  const node = el(tag, className, text);
+  node.dataset.editable = "true";
+  node.dataset.export = exportKind;
+  return node;
+}
+
+function sourceLink(evidence) {
+  const link = el("a", "evidence-link", `来源：${evidence.title}`);
+  link.href = evidence.url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.title = evidence.title;
+  return link;
+}
+
+function render(data) {
+  latest = data;
+  editing = false;
+  ui.edit.textContent = "编辑报告";
+  const report = data.report.report;
+  const evidenceById = new Map(data.evidence.map((item) => [item.id, item]));
+  const usedIds = new Set(
+    report.sections.flatMap((section) => section.evidence_ids),
+  );
+  if (report.prediction) {
+    [
+      ...report.prediction.supporting_factors,
+      ...report.prediction.counter_factors,
+    ].forEach((factor) => factor.evidence_ids.forEach((id) => usedIds.add(id)));
+  }
+  latestUsedEvidence = data.evidence.filter((item) => usedIds.has(item.id));
+  const publisherCount = new Set(data.evidence.map((item) => item.source_name)).size;
+  ui.result.hidden = false;
+  ui.meta.textContent = `生成于 ${new Date(data.report.generated_at).toLocaleString("zh-CN")} · ${publisherCount} 家来源 · ${data.evidence.length} 条近期资料`;
+  ui.output.replaceChildren(
+    editableNode("h2", "", report.title, "title"),
+    editableNode("p", "report-summary", report.executive_summary, "summary"),
+  );
+
+  const prediction = predictionView(report.prediction);
+  if (prediction) ui.output.append(prediction);
+
+  report.sections.forEach((section, index) => {
+    const wrapper = el("section", "report-section");
+    wrapper.dataset.section = String(index);
+    wrapper.append(
+      editableNode("h3", "", section.heading, "heading"),
+      editableNode("p", "", section.body, "body"),
+    );
+    const links = el("div", "evidence-tags");
+    section.evidence_ids.forEach((id) => {
+      const evidence = evidenceById.get(id);
+      if (evidence) links.append(sourceLink(evidence));
+    });
+    wrapper.append(links);
+    ui.output.append(wrapper);
+  });
+
+  if (report.warnings.length) {
+    const warnings = el("section", "warnings");
+    warnings.append(el("strong", "", "发布前请复核"));
+    report.warnings.forEach((item) => warnings.append(el("p", "", item)));
+    ui.output.append(warnings);
+  }
+
+  const sources = el("section", "source-list");
+  sources.append(el("h3", "", "本报告使用的来源"));
+  const list = el("ol", "");
+  latestUsedEvidence.forEach((item) => {
+    const row = el("li", "");
+    const link = el("a", "", item.title);
+    link.href = item.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    row.append(
+      link,
+      el(
+        "small",
+        "",
+        `${item.source_name} · ${new Date(item.published_at).toLocaleString("zh-CN")}`,
+      ),
+    );
+    list.append(row);
+  });
+  sources.append(list);
+  ui.output.append(sources);
+  ui.result.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function reportAsText() {
+  if (!latest) return "";
+  const title = ui.output.querySelector('[data-export="title"]')?.innerText || "";
+  const summary =
+    ui.output.querySelector('[data-export="summary"]')?.innerText || "";
+  const lines = [`# ${title}`, "", summary, ""];
+  ui.output.querySelectorAll("[data-section]").forEach((section) => {
+    const heading = section.querySelector('[data-export="heading"]')?.innerText;
+    const body = section.querySelector('[data-export="body"]')?.innerText;
+    lines.push(`## ${heading}`, "", body, "");
+  });
+  lines.push("## 来源", "");
+  latestUsedEvidence.forEach((item) =>
+    lines.push(`- ${item.title}：${item.url}`),
+  );
+  return lines.join("\n");
+}
+
+function startProgress() {
+  ui.progress.hidden = false;
+  const steps = [...ui.progress.querySelectorAll("span")];
+  let current = 0;
+  steps.forEach((step, index) => step.classList.toggle("active", index === 0));
+  progressTimer = window.setInterval(() => {
+    current = Math.min(current + 1, steps.length - 1);
+    steps.forEach((step, index) => step.classList.toggle("active", index <= current));
+  }, 2200);
+}
+
+function stopProgress() {
+  if (progressTimer) window.clearInterval(progressTimer);
+  progressTimer = null;
+  ui.progress.hidden = true;
+}
+
+async function loadStatus() {
+  try {
+    const response = await fetch("/v1/product/status");
+    const status = await response.json();
+    ui.readiness.classList.toggle("live", status.generation_ready);
+    ui.readiness.querySelector("b").textContent = status.generation_ready
+      ? "实时资料与 AI 已连接"
+      : "当前为体验模式";
+  } catch {
+    ui.readiness.querySelector("b").textContent = "服务暂时不可用";
+  }
+}
+
+ui.cards.forEach((card) => {
+  card.addEventListener("click", () => choose(card.dataset.reportType));
+});
+
+ui.form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  ui.error.textContent = "";
+  if (ui.subject.value.trim().length < 3) {
+    ui.error.textContent = "请填写更具体的报告主题。";
+    return;
+  }
+  ui.button.disabled = true;
+  ui.button.querySelector("span").textContent = "正在研究…";
+  startProgress();
+  try {
+    const response = await fetch("/v1/research/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestPayload()),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "报告生成失败");
+    render(data);
+  } catch (error) {
+    ui.error.textContent = error.message || "暂时无法生成，请稍后再试。";
+  } finally {
+    stopProgress();
+    ui.button.disabled = false;
+    ui.button.querySelector("span").textContent = "生成我的报告";
+  }
+});
+
+ui.edit.addEventListener("click", () => {
+  editing = !editing;
+  ui.output.querySelectorAll("[data-editable]").forEach((node) => {
+    node.contentEditable = String(editing);
+  });
+  ui.output.classList.toggle("editing", editing);
+  ui.edit.textContent = editing ? "完成编辑" : "编辑报告";
+});
+
+ui.copy.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(reportAsText());
+  ui.copy.textContent = "已复制";
+  window.setTimeout(() => (ui.copy.textContent = "复制全文"), 1200);
+});
+
+ui.download.addEventListener("click", () => {
+  if (!latest) return;
+  const blob = new Blob([reportAsText()], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `footpulse-${latest.run.run_id}.md`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+});
+
+const now = new Date();
+const offset = now.getTimezoneOffset() * 60_000;
+ui.date.value = new Date(now.getTime() - offset).toISOString().slice(0, 10);
+loadStatus();

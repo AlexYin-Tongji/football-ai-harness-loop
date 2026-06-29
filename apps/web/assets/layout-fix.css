@@ -11,6 +11,120 @@
   overflow-wrap: anywhere;
 }
 
+.result-head > div:first-child {
+  min-width: 0;
+}
+
+.result-head > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.result-head > div:last-child button {
+  margin-left: 0;
+}
+
+.readiness {
+  align-items: center;
+  border-top: 1px solid #33403d;
+  color: #9ea8a5;
+  display: flex;
+  font-size: 12px;
+  gap: 10px;
+  margin-top: 36px;
+  padding-top: 22px;
+}
+
+.readiness i {
+  background: #f0b84b;
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+.readiness.live {
+  color: #d8e2df;
+}
+
+.readiness.live i {
+  background: var(--lime);
+  box-shadow: 0 0 0 5px rgb(214 255 63 / 10%);
+}
+
+.research-progress {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 18px;
+}
+
+.research-progress span {
+  border-top: 2px solid #d7d4cc;
+  color: #999;
+  font-size: 10px;
+  padding-top: 8px;
+}
+
+.research-progress span.active {
+  border-color: #5c7e74;
+  color: #25332f;
+}
+
+.evidence-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.evidence-link {
+  background: #e9f1ed;
+  color: #385b50;
+  font-size: 10px;
+  padding: 6px 9px;
+  text-decoration: none;
+}
+
+.evidence-link:hover {
+  background: #d8e9e1;
+}
+
+.source-list {
+  border-top: 1px solid #ddd9d0;
+  margin-top: 55px;
+  padding-top: 30px;
+}
+
+.source-list ol {
+  padding-left: 22px;
+}
+
+.source-list li {
+  margin: 18px 0;
+  padding-left: 8px;
+}
+
+.source-list a {
+  color: #1c5143;
+  font-weight: 700;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.source-list small {
+  color: #818784;
+  display: block;
+  margin-top: 5px;
+}
+
+.editing [data-editable] {
+  background: #f6f8ef;
+  border-radius: 3px;
+  outline: 1px dashed #8ca67d;
+  outline-offset: 7px;
+}
+
 @media (max-width: 800px) {
   .hero h1 {
     font-size: 44px;
@@ -23,5 +137,13 @@
 
   .hero-actions .button {
     text-align: center;
+  }
+
+  .research-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .result-head > div:last-child {
+    justify-content: flex-start;
   }
 }

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import UTC, datetime
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from services.report_api.domain import (
     PredictionOpinion,
@@ -65,15 +69,32 @@ class ReportService:
         last_result: LLMResult | None = None
         last_errors: list[str] = []
         attempt_limit = max_attempts or self._max_attempts
-        attempt_limit = min(attempt_limit, self._max_attempts)
+        attempt_limit = min(
+            attempt_limit,
+            self._max_attempts,
+            max(1, 5 - len(council_results)),
+        )
 
         for attempt in range(1, attempt_limit + 1):
             llm_request = LLMRequest(
                 purpose=request.report_type.value,
-                model=self._model,
+                model=(
+                    self._model
+                    if request.report_type == ReportType.MATCH_PREDICTION
+                    else self._flash_model
+                ),
                 messages=messages,
-                thinking_enabled=True,
-                max_output_tokens=self._max_output_tokens,
+                thinking_enabled=request.report_type == ReportType.MATCH_PREDICTION,
+                max_output_tokens=min(
+                    self._max_output_tokens,
+                    (
+                        5000
+                        if request.report_type == ReportType.MATCH_PREDICTION
+                        else {"concise": 1800, "standard": 3500, "deep": 6000}[
+                            request.length.value
+                        ]
+                    ),
+                ),
                 metadata={
                     "report_type": request.report_type.value,
                     "subject": request.subject,
@@ -126,60 +147,101 @@ class ReportService:
             "form_analyst": "从实力、状态、阵容、休息和战术匹配分析支持性证据",
             "skeptic": "主动寻找样本偏差、伤停不确定性、对位风险和反方证据",
         }
-        opinions: list[PredictionOpinion] = []
-        results: list[LLMResult] = []
-        for role, instruction in roles.items():
-            result = await self._provider.generate_json(
-                LLMRequest(
-                    purpose=f"prediction_opinion:{role}",
-                    model=self._flash_model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "你是足球赛前分析委员。只输出 JSON：role, home_win, "
-                                "draw, away_win, key_claims[{claim,evidence_ids}], "
-                                "unknowns, "
-                                "confidence。三项概率必须归一化为1，不得补造事实。"
-                            ),
+
+        opinion_schema = json.dumps(
+            PredictionOpinion.model_json_schema(), ensure_ascii=False
+        )
+
+        async def run_role(
+            role: str, instruction: str
+        ) -> tuple[PredictionOpinion, list[LLMResult]]:
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an independent pre-match football analyst. Output one "
+                        "JSON object only. It must match this JSON Schema exactly: "
+                        f"{opinion_schema}. key_claims must contain at least one "
+                        "claim, and every evidence_ids value must come from the "
+                        "supplied evidence. The three probabilities must sum to 1. "
+                        "Do not add keys or prose."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Role: {role}. Task: {instruction}\n"
+                        f"Match: {request.subject}\nEvidence:\n{evidence}"
+                    ),
+                },
+            ]
+
+            async def generate(current_messages: list[dict[str, str]]) -> LLMResult:
+                return await self._provider.generate_json(
+                    LLMRequest(
+                        purpose=f"prediction_opinion:{role}",
+                        model=self._flash_model,
+                        messages=current_messages,
+                        thinking_enabled=True,
+                        max_output_tokens=min(self._max_output_tokens, 1800),
+                        metadata={
+                            "report_type": request.report_type.value,
+                            "subject": request.subject,
+                            "match_stage": request.match_stage.value
+                            if request.match_stage
+                            else None,
+                            "evidence_ids": [item.id for item in request.evidence],
+                            "opinion_role": role,
                         },
-                        {
-                            "role": "user",
-                            "content": (
-                                f"角色：{role}。任务：{instruction}\n"
-                                f"比赛：{request.subject}\n{evidence}"
-                            ),
-                        },
-                    ],
-                    thinking_enabled=True,
-                    max_output_tokens=min(self._max_output_tokens, 1800),
-                    metadata={
-                        "report_type": request.report_type.value,
-                        "subject": request.subject,
-                        "match_stage": request.match_stage.value
-                        if request.match_stage
-                        else None,
-                        "evidence_ids": [item.id for item in request.evidence],
-                        "opinion_role": role,
+                    )
+                )
+
+            def validate(output: dict[str, object]) -> PredictionOpinion:
+                opinion = PredictionOpinion.model_validate({**output, "role": role})
+                total = opinion.home_win + opinion.draw + opinion.away_win
+                if abs(total - 1.0) > 0.001:
+                    raise ValueError("probabilities are not normalized")
+                allowed = {item.id for item in request.evidence}
+                referenced = {
+                    evidence_id
+                    for claim in opinion.key_claims
+                    for evidence_id in claim.evidence_ids
+                }
+                if referenced - allowed:
+                    raise ValueError("opinion cites unknown evidence")
+                return opinion
+
+            results = [await generate(messages)]
+            try:
+                opinion = validate(results[0].output)
+            except (ValidationError, ValueError) as exc:
+                repair_messages = [
+                    *messages,
+                    {
+                        "role": "assistant",
+                        "content": json.dumps(results[0].output, ensure_ascii=False),
                     },
-                )
-            )
-            opinion = PredictionOpinion.model_validate({**result.output, "role": role})
-            total = opinion.home_win + opinion.draw + opinion.away_win
-            if abs(total - 1.0) > 0.001:
-                raise ReportGenerationError(
-                    f"prediction opinion {role} is not normalized"
-                )
-            allowed = {item.id for item in request.evidence}
-            referenced = {
-                evidence_id
-                for claim in opinion.key_claims
-                for evidence_id in claim.evidence_ids
-            }
-            if referenced - allowed:
-                raise ReportGenerationError(
-                    f"prediction opinion {role} cites unknown evidence"
-                )
-            opinions.append(opinion)
-            results.append(result)
+                    {
+                        "role": "user",
+                        "content": (
+                            "Repair the JSON to match the schema exactly. "
+                            "Do not add prose. "
+                            f"Validation error: {exc}"
+                        ),
+                    },
+                ]
+                results.append(await generate(repair_messages))
+                try:
+                    opinion = validate(results[-1].output)
+                except (ValidationError, ValueError) as retry_exc:
+                    raise ReportGenerationError(
+                        f"prediction opinion {role} failed its bounded repair"
+                    ) from retry_exc
+            return opinion, results
+
+        completed = await asyncio.gather(
+            *(run_role(role, instruction) for role, instruction in roles.items())
+        )
+        opinions = [item[0] for item in completed]
+        results = [result for item in completed for result in item[1]]
         return opinions, results

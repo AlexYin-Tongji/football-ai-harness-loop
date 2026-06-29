@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from services.report_api.domain import ReportResponse, ReportType
+from services.report_api.domain import Evidence, ReportResponse, ReportType
 
 
 class RunStatus(StrEnum):
@@ -63,6 +63,7 @@ class HarnessTrace(BaseModel):
 class HarnessRunResponse(BaseModel):
     run: HarnessTrace
     report: ReportResponse
+    evidence: list[Evidence] = Field(default_factory=list)
 
 
 class SkillCapability(BaseModel):

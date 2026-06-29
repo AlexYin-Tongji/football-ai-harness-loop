@@ -12,6 +12,12 @@
       "transport": "stdio",
       "read_only": true
     },
+    "rss-news": {
+      "command": "python",
+      "args": ["-m", "services.mcp_servers.rss_news"],
+      "transport": "stdio",
+      "read_only": true
+    },
     "football-data": {
       "command": "python",
       "args": ["-m", "services.mcp_servers.football_data"],

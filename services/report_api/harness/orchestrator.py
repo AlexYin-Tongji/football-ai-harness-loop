@@ -30,7 +30,9 @@ class ReportHarness:
         self._skills = skill_registry
         self._memory = memory
 
-    async def run(self, request: ReportRequest) -> HarnessRunResponse:
+    async def run(
+        self, request: ReportRequest, tool_rounds_used: int = 0
+    ) -> HarnessRunResponse:
         skill = self._skills.for_report_type(request.report_type)
         now = datetime.now(UTC)
         trace = HarnessTrace(
@@ -43,6 +45,7 @@ class ReportHarness:
             max_model_rounds=skill.max_model_rounds,
             max_tool_rounds=skill.max_tool_rounds,
             evidence_count=len(request.evidence),
+            tool_rounds_used=tool_rounds_used,
             created_at=now,
         )
         self._memory.put(trace)
@@ -102,7 +105,9 @@ class ReportHarness:
             trace.phase = "completed"
             trace.completed_at = datetime.now(UTC)
             self._memory.put(trace)
-            return HarnessRunResponse(run=trace, report=report)
+            return HarnessRunResponse(
+                run=trace, report=report, evidence=request.evidence
+            )
         except Exception as exc:
             self._failed_step(trace, exc)
             raise
