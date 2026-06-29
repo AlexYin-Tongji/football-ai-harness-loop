@@ -23,6 +23,11 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["services"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"apps/web" = "apps/web"
+"agent_skills" = "agent_skills"
+"config" = "config"
+
 [tool.pytest.ini_options]
 addopts = "-q"
 pythonpath = ["."]

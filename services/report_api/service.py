@@ -33,12 +33,19 @@ class ReportService:
         self._max_output_tokens = max_output_tokens
         self._max_attempts = max_attempts
 
-    async def generate(self, request: ReportRequest) -> ReportResponse:
-        messages = build_messages(request)
+    async def generate(
+        self,
+        request: ReportRequest,
+        max_attempts: int | None = None,
+        skill_instructions: str | None = None,
+    ) -> ReportResponse:
+        messages = build_messages(request, skill_instructions)
         last_result: LLMResult | None = None
         last_errors: list[str] = []
+        attempt_limit = max_attempts or self._max_attempts
+        attempt_limit = min(attempt_limit, self._max_attempts)
 
-        for attempt in range(1, self._max_attempts + 1):
+        for attempt in range(1, attempt_limit + 1):
             llm_request = LLMRequest(
                 purpose=request.report_type.value,
                 model=self._model,
@@ -59,7 +66,7 @@ class ReportService:
                 report = validate_generated_report(last_result.output, request)
             except ReportValidationError as exc:
                 last_errors = exc.errors
-                if attempt < self._max_attempts:
+                if attempt < attempt_limit:
                     messages = append_revision_request(
                         messages, last_result.output, exc.errors
                     )

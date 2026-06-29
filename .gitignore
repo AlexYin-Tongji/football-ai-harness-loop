@@ -21,6 +21,9 @@ Thumbs.db
 artifacts/
 data/raw/
 data/processed/
+data/*.db
+data/*.db-shm
+data/*.db-wal
 models/*.bin
 models/*.pkl
 models/*.joblib
