@@ -11,6 +11,27 @@ class MockProvider:
         evidence_id = request.metadata["evidence_ids"][0]
         subject = request.metadata["subject"]
 
+        if request.purpose.startswith("prediction_opinion:"):
+            role = request.metadata["opinion_role"]
+            return LLMResult(
+                output={
+                    "role": role,
+                    "home_win": 0.4,
+                    "draw": 0.3,
+                    "away_win": 0.3,
+                    "key_claims": [
+                        {
+                            "claim": "演示分析席位，仅用于验证流程",
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "unknowns": ["mock 模式没有真实球队上下文"],
+                    "confidence": "low",
+                },
+                provider="mock",
+                model=request.model,
+            )
+
         templates = {
             "world_cup_daily": {
                 "summary": (

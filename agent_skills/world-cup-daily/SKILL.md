@@ -1,24 +1,12 @@
 ---
 name: world-cup-daily
-description: Generate a Chinese daily World Cup report from official match data and time-bounded news evidence. Use for daily recaps, qualification implications, team news, Beijing-time schedules, and viewing priorities.
+description: 把指定北京时间日界线内的世界杯赛果、赛程、晋级形势和重要消息整理为带结构化引用的中文日报。
 ---
 
-# World Cup Daily Report
+# 世界杯每日简报
 
-Use structured match data as the source of truth for fixtures, scores, tables, and kickoff times. Use news evidence only for narrative context.
+先用 Source Registry 确认来源，再由 football-data 获取赛程/赛果，用 GDELT 发现新闻候选。FIFA 官方公告为 S0 核验依据；GDELT 条目自身不是事实证据。
 
-## Workflow
+工作流：锁定北京时间窗口 → 拉取结构化比赛事实 → 发现并聚类新闻 → 将同一事件的转载合并 → 对赛果/赛程做官方或双源核验 → 生成 30 秒摘要、昨日赛果、晋级影响、今日看点 → 校验每段 evidence_id。模型最多 3 轮，工具最多 7 轮；工具 15 秒超时，模型 90 秒超时；一次修订后仍失败则交人工。
 
-1. Read official results, fixtures, stage, and qualification state.
-2. Extract and rank material news published before the cutoff.
-3. Build a 30-second summary, match recap, implications, team news, and today's Beijing-time schedule.
-4. Cite every factual section and expose conflicts or stale data.
-5. Review numbers, timezones, team identity, and evidence coverage.
-
-## Boundaries
-
-- Never calculate tables or brackets from prose when structured data exists.
-- Never treat an article prediction as a result.
-- Keep AI judgment visibly separate from facts.
-- Return a report for user editing; do not publish it.
-
+只保存标题、URL、时间、简短摘录和归一化事实，不保存完整新闻正文。不得把预测写成赛果，不得使用截止时间之后的信息，不得自动发布。

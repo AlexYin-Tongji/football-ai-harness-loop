@@ -1,0 +1,83 @@
+{
+  "version": "2026-06-29",
+  "sources": [
+    {
+      "id": "football-data-org",
+      "name": "football-data.org",
+      "category": "match_data",
+      "trust_tier": "S1_structured_provider",
+      "access": "api",
+      "production_status": "approved_with_key",
+      "base_url": "https://api.football-data.org/v4",
+      "docs_url": "https://docs.football-data.org/general/v4/index.html",
+      "credential_env": "FOOTBALL_DATA_API_KEY",
+      "allowed_content": ["fixtures", "results", "standings", "teams"],
+      "store_policy": "normalized_facts_only"
+    },
+    {
+      "id": "gdelt-doc",
+      "name": "GDELT DOC 2.0",
+      "category": "news_discovery",
+      "trust_tier": "S2_discovery_index",
+      "access": "api",
+      "production_status": "approved_discovery_only",
+      "base_url": "https://api.gdeltproject.org/api/v2/doc/doc",
+      "docs_url": "https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/",
+      "credential_env": null,
+      "allowed_content": ["title", "url", "domain", "published_at", "language"],
+      "store_policy": "metadata_and_excerpt_only"
+    },
+    {
+      "id": "fifa-official",
+      "name": "FIFA",
+      "category": "official_verification",
+      "trust_tier": "S0_official",
+      "access": "human_verification",
+      "production_status": "approved_manual_verification",
+      "base_url": "https://www.fifa.com",
+      "docs_url": "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/match-schedule-fixtures-results-teams-stadiums",
+      "credential_env": null,
+      "allowed_content": ["official announcements", "schedule", "results"],
+      "store_policy": "citation_and_normalized_facts_only"
+    },
+    {
+      "id": "sportmonks",
+      "name": "Sportmonks Football API v3",
+      "category": "match_data",
+      "trust_tier": "S1_structured_provider",
+      "access": "api",
+      "production_status": "candidate_requires_subscription",
+      "base_url": "https://api.sportmonks.com/v3/football",
+      "docs_url": "https://docs.sportmonks.com/football",
+      "credential_env": "SPORTMONKS_API_TOKEN",
+      "allowed_content": ["fixtures", "lineups", "events", "squads", "statistics", "xG"],
+      "store_policy": "contract_dependent_normalized_facts"
+    },
+    {
+      "id": "newsapi",
+      "name": "NewsAPI",
+      "category": "news_discovery",
+      "trust_tier": "S2_discovery_index",
+      "access": "api",
+      "production_status": "candidate_requires_business_plan",
+      "base_url": "https://newsapi.org/v2",
+      "docs_url": "https://newsapi.org/pricing",
+      "credential_env": "NEWS_API_KEY",
+      "allowed_content": ["title", "url", "source", "published_at", "description"],
+      "store_policy": "metadata_only_no_full_text"
+    },
+    {
+      "id": "transfermarkt",
+      "name": "Transfermarkt",
+      "category": "transfer_reference",
+      "trust_tier": "S3_unapproved_web",
+      "access": "none",
+      "production_status": "blocked_until_written_permission",
+      "base_url": "https://www.transfermarkt.com",
+      "docs_url": "https://www.transfermarkt.com/intern/anb",
+      "credential_env": null,
+      "allowed_content": [],
+      "store_policy": "do_not_collect"
+    }
+  ]
+}

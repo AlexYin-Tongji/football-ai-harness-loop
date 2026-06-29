@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+from secrets import compare_digest
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from services.report_api.admin import AdminCatalog, data_catalog
 from services.report_api.config import Settings
 from services.report_api.domain import ReportRequest, ReportResponse
 from services.report_api.harness.mcp import load_mcp_capabilities
@@ -43,6 +46,7 @@ def create_app(
     service = ReportService(
         provider=provider,
         model=settings.deepseek_pro_model,
+        flash_model=settings.deepseek_flash_model,
         max_output_tokens=settings.llm_max_output_tokens,
         max_attempts=settings.report_max_attempts,
     )
@@ -76,12 +80,24 @@ def create_app(
         return response
 
     @app.get("/", include_in_schema=False)
-    async def workbench() -> FileResponse:
+    async def consumer_home() -> FileResponse:
         return FileResponse(web_root / "index.html")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "provider": settings.llm_provider}
+
+    @app.get("/v1/admin/catalog", response_model=AdminCatalog)
+    async def admin_catalog(
+        x_admin_token: str | None = Header(default=None),
+    ) -> AdminCatalog:
+        if not settings.admin_enabled:
+            raise HTTPException(status_code=404, detail="not found")
+        if not x_admin_token or not compare_digest(
+            x_admin_token, settings.admin_token or ""
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return data_catalog(datetime.now(UTC))
 
     @app.post("/v1/reports/generate", response_model=ReportResponse)
     async def generate_report(request: ReportRequest) -> ReportResponse:

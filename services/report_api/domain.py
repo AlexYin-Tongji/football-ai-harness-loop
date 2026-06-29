@@ -112,6 +112,16 @@ class TokenUsage(BaseModel):
     output_tokens: int = Field(default=0, ge=0)
 
 
+class PredictionOpinion(BaseModel):
+    role: Literal["form_analyst", "skeptic"]
+    home_win: float = Field(ge=0, le=1)
+    draw: float = Field(ge=0, le=1)
+    away_win: float = Field(ge=0, le=1)
+    key_claims: list[EvidenceFactor] = Field(min_length=1, max_length=6)
+    unknowns: list[str] = Field(default_factory=list, max_length=8)
+    confidence: Literal["low", "medium", "high"]
+
+
 class ReportResponse(BaseModel):
     id: str
     status: Literal["completed"] = "completed"
@@ -120,6 +130,6 @@ class ReportResponse(BaseModel):
     prompt_version: str
     data_cutoff: datetime
     generated_at: datetime
-    attempts: int = Field(ge=1, le=3)
+    attempts: int = Field(ge=1, le=5)
     usage: TokenUsage
     report: GeneratedReport

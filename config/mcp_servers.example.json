@@ -1,35 +1,23 @@
 {
-  "servers": [
-    {
-      "id": "football-data",
-      "transport": "streamable-http",
-      "url_env": "FOOTBALL_DATA_MCP_URL",
-      "token_env": "FOOTBALL_DATA_MCP_TOKEN",
-      "read_only": true,
-      "allowed_tool_prefixes": ["fixtures.", "matches.", "teams.", "lineups."]
-    },
-    {
-      "id": "news-evidence",
-      "transport": "streamable-http",
-      "url_env": "NEWS_EVIDENCE_MCP_URL",
-      "token_env": "NEWS_EVIDENCE_MCP_TOKEN",
-      "read_only": true,
-      "allowed_tool_prefixes": ["news.search_", "evidence.fetch_", "evidence.resolve_"]
-    },
-    {
-      "id": "source-registry",
+  "servers": {
+    "source-registry": {
+      "command": "python",
+      "args": ["-m", "services.mcp_servers.source_registry"],
       "transport": "stdio",
-      "command": "python -m services.source_registry_mcp",
-      "read_only": true,
-      "allowed_tool_prefixes": ["sources."]
+      "read_only": true
     },
-    {
-      "id": "report-memory",
+    "news-discovery": {
+      "command": "python",
+      "args": ["-m", "services.mcp_servers.news_discovery"],
       "transport": "stdio",
-      "command": "python -m services.report_memory_mcp",
-      "read_only": false,
-      "allowed_tool_prefixes": ["memory.get_", "memory.put_", "memory.delete_"]
+      "read_only": true
+    },
+    "football-data": {
+      "command": "python",
+      "args": ["-m", "services.mcp_servers.football_data"],
+      "transport": "stdio",
+      "read_only": true,
+      "required_env": ["FOOTBALL_DATA_API_KEY"]
     }
-  ]
+  }
 }
-

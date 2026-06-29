@@ -1,0 +1,20 @@
+{
+  "version": "2026-06-29",
+  "policy": "discovery_and_citation_only_no_full_text_storage",
+  "publishers": [
+    {"id": "fifa", "domain": "fifa.com", "tier": "S0", "topics": ["world_cup", "official"], "access": "official_verification"},
+    {"id": "uefa", "domain": "uefa.com", "tier": "S0", "topics": ["competition", "official"], "access": "official_verification"},
+    {"id": "premier-league", "domain": "premierleague.com", "tier": "S0", "topics": ["transfer", "official"], "access": "official_verification"},
+    {"id": "reuters", "domain": "reuters.com", "tier": "S1", "topics": ["world_cup", "transfer"], "access": "gdelt_discovery_then_citation"},
+    {"id": "bbc-sport", "domain": "bbc.com", "tier": "S1", "topics": ["world_cup", "transfer"], "access": "gdelt_discovery_then_citation"},
+    {"id": "sky-sports", "domain": "skysports.com", "tier": "S1", "topics": ["transfer"], "access": "gdelt_discovery_then_citation"},
+    {"id": "guardian-football", "domain": "theguardian.com", "tier": "S1", "topics": ["world_cup", "transfer"], "access": "gdelt_discovery_then_citation"},
+    {"id": "espn-soccer", "domain": "espn.com", "tier": "S1", "topics": ["world_cup", "transfer"], "access": "gdelt_discovery_then_citation"},
+    {"id": "the-athletic", "domain": "nytimes.com", "tier": "S1", "topics": ["world_cup", "transfer"], "access": "metadata_only_subscription_required"}
+  ],
+  "dynamic_official_sources": {
+    "rule": "club_or_federation_domain_must_be_manually_verified_before_first_use",
+    "default_tier": "S0",
+    "access": "official_verification"
+  }
+}

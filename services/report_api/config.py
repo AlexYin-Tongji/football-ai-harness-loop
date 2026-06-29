@@ -16,6 +16,8 @@ class Settings:
     llm_timeout_seconds: float = 90.0
     llm_max_output_tokens: int = 6000
     report_max_attempts: int = 2
+    admin_enabled: bool = False
+    admin_token: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -30,6 +32,8 @@ class Settings:
             llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "90")),
             llm_max_output_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "6000")),
             report_max_attempts=int(os.getenv("REPORT_MAX_ATTEMPTS", "2")),
+            admin_enabled=os.getenv("ADMIN_ENABLED", "false").lower() == "true",
+            admin_token=os.getenv("ADMIN_TOKEN") or None,
         )
         settings.validate()
         return settings
@@ -45,3 +49,5 @@ class Settings:
             raise ValueError("LLM_MAX_OUTPUT_TOKENS must be positive")
         if not 1 <= self.report_max_attempts <= 3:
             raise ValueError("REPORT_MAX_ATTEMPTS must be between 1 and 3")
+        if self.admin_enabled and not self.admin_token:
+            raise ValueError("ADMIN_TOKEN is required when ADMIN_ENABLED=true")

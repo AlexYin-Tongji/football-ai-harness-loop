@@ -1,6 +1,8 @@
 # Football AI Harness Loop
 
-面向中文足球用户与内容创作者的可信 AI 报告工作台。项目以 **Harness（可靠性运行时）** 包住模型，以 **Loop（可观测、可纠偏的闭环）** 驱动资料采集、报告生成和质量改进。
+面向球迷与足球内容创作者的可信 AI 报告生成器。公共页面只呈现世界杯日报、转会情报和比赛预测；证据检索、模型协作与质量门由后台 Agent Core 完成。
+
+V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AGENT_CORE_V3_REPORT.md)。
 
 当前阶段：MVP 纵向切片开发。
 
