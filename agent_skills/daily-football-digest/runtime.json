@@ -1,0 +1,42 @@
+{
+  "id": "daily-football-digest",
+  "version": "1.0.0",
+  "report_type": "daily_football_digest",
+  "max_model_rounds": 7,
+  "max_tool_rounds": 12,
+  "phases": [
+    "discover",
+    "source_grade",
+    "match_news_research",
+    "transfer_research",
+    "desk_drafts",
+    "editor_synthesis",
+    "validate",
+    "human_review"
+  ],
+  "mcp_servers": [
+    "source-registry",
+    "football-data",
+    "rss-news",
+    "news-discovery"
+  ],
+  "memory_read": [
+    "source_reliability",
+    "published_story_index",
+    "transfer_event_graph"
+  ],
+  "memory_write": [
+    "run_summary",
+    "story_clusters",
+    "transfer_event_graph",
+    "report_version"
+  ],
+  "quality_gates": [
+    "source_approval",
+    "cutoff_integrity",
+    "rumor_label",
+    "citation_integrity",
+    "duplicate_story",
+    "privacy"
+  ]
+}

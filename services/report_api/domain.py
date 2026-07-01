@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class ReportType(StrEnum):
+    DAILY_FOOTBALL_DIGEST = "daily_football_digest"
     TRANSFER_DAILY = "transfer_daily"
     WORLD_CUP_DAILY = "world_cup_daily"
     MATCH_PREDICTION = "match_prediction"
@@ -31,6 +32,16 @@ class Evidence(BaseModel):
     published_at: datetime
     source_name: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=4000)
+    source_id: str = Field(default="legacy-source", min_length=1, max_length=100)
+    trust_tier: str = Field(default="S2", min_length=1, max_length=40)
+    evidence_kind: Literal["official", "verified", "structured", "discovery"] = (
+        "verified"
+    )
+    verification_status: Literal[
+        "official", "corroborated", "publisher_report", "unverified_lead"
+    ] = "publisher_report"
+    story_cluster_id: str | None = Field(default=None, max_length=100)
+    source_independence_key: str | None = Field(default=None, max_length=100)
 
     @field_validator("published_at")
     @classmethod
@@ -38,6 +49,22 @@ class Evidence(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("published_at must include a timezone")
         return value
+
+
+class RecentMatchSample(BaseModel):
+    goals_for: int = Field(ge=0, le=20)
+    goals_against: int = Field(ge=0, le=20)
+    neutral: bool = True
+
+
+class MatchModelContext(BaseModel):
+    home_team: str = Field(min_length=1, max_length=120)
+    away_team: str = Field(min_length=1, max_length=120)
+    home_recent: list[RecentMatchSample] = Field(default_factory=list, max_length=20)
+    away_recent: list[RecentMatchSample] = Field(default_factory=list, max_length=20)
+    home_elo: float | None = Field(default=None, ge=500, le=3000)
+    away_elo: float | None = Field(default=None, ge=500, le=3000)
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class ReportRequest(BaseModel):
@@ -49,6 +76,7 @@ class ReportRequest(BaseModel):
     focus: list[str] = Field(default_factory=list, max_length=8)
     match_stage: MatchStage | None = None
     evidence: list[Evidence] = Field(min_length=1, max_length=100)
+    match_context: MatchModelContext | None = None
 
     @field_validator("data_cutoff")
     @classmethod
@@ -68,6 +96,10 @@ class ReportRequest(BaseModel):
             raise ValueError("match_stage is required for match prediction reports")
         if self.report_type != ReportType.MATCH_PREDICTION and self.match_stage:
             raise ValueError("match_stage is only valid for match prediction reports")
+        if self.report_type != ReportType.MATCH_PREDICTION and self.match_context:
+            raise ValueError("match_context is only valid for match prediction reports")
+        if self.match_context and set(self.match_context.evidence_ids) - set(ids):
+            raise ValueError("match_context cites unknown evidence IDs")
         return self
 
 
@@ -104,6 +136,38 @@ class QualificationProbability(BaseModel):
     away: float = Field(ge=0, le=1)
 
 
+class ExternalPrediction(BaseModel):
+    source_name: str = Field(min_length=1, max_length=200)
+    summary: str = Field(min_length=1, max_length=1000)
+    home_win: float | None = Field(default=None, ge=0, le=1)
+    draw: float | None = Field(default=None, ge=0, le=1)
+    away_win: float | None = Field(default=None, ge=0, le=1)
+    evidence_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_probability_set(self) -> ExternalPrediction:
+        values = [self.home_win, self.draw, self.away_win]
+        supplied = [value is not None for value in values]
+        if any(supplied) and not all(supplied):
+            raise ValueError("external prediction probabilities must be all or none")
+        total = sum(value for value in values if value is not None)
+        if all(supplied) and abs(total - 1) > 0.001:
+            raise ValueError("external prediction probabilities must equal 1")
+        return self
+
+
+class StatisticalBaseline(BaseModel):
+    method: Literal["poisson", "elo_poisson"]
+    home_win: float = Field(ge=0, le=1)
+    draw: float = Field(ge=0, le=1)
+    away_win: float = Field(ge=0, le=1)
+    expected_home_goals: float = Field(ge=0, le=10)
+    expected_away_goals: float = Field(ge=0, le=10)
+    sample_size_home: int = Field(ge=0)
+    sample_size_away: int = Field(ge=0)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
 class MatchPrediction(BaseModel):
     home_win: float = Field(ge=0, le=1)
     draw: float = Field(ge=0, le=1)
@@ -114,6 +178,10 @@ class MatchPrediction(BaseModel):
     counter_factors: list[EvidenceFactor] = Field(min_length=1)
     unknowns: list[str] = Field(default_factory=list)
     confidence: Literal["low", "medium", "high"]
+    external_predictions: list[ExternalPrediction] = Field(
+        default_factory=list, max_length=6
+    )
+    statistical_baseline: StatisticalBaseline | None = None
 
 
 class GeneratedReport(BaseModel):
@@ -139,6 +207,22 @@ class PredictionOpinion(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
+class DeskBrief(BaseModel):
+    desk: Literal["match_news", "transfer_market"]
+    key_items: list[EvidenceFactor] = Field(min_length=1, max_length=12)
+    rumor_items: list[EvidenceFactor] = Field(default_factory=list, max_length=12)
+    conflicts: list[str] = Field(default_factory=list, max_length=8)
+    unknowns: list[str] = Field(default_factory=list, max_length=8)
+
+
+class DeskDraft(BaseModel):
+    desk: Literal["match_news", "transfer_market"]
+    heading: str = Field(min_length=1, max_length=200)
+    summary: str = Field(min_length=1, max_length=2000)
+    sections: list[ReportSection] = Field(min_length=1, max_length=6)
+    warnings: list[str] = Field(default_factory=list, max_length=8)
+
+
 class ReportResponse(BaseModel):
     id: str
     status: Literal["completed"] = "completed"
@@ -147,6 +231,6 @@ class ReportResponse(BaseModel):
     prompt_version: str
     data_cutoff: datetime
     generated_at: datetime
-    attempts: int = Field(ge=1, le=5)
+    attempts: int = Field(ge=1, le=8)
     usage: TokenUsage
     report: GeneratedReport

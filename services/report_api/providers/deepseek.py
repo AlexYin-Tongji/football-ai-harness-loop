@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -21,11 +22,13 @@ class DeepSeekProvider:
         base_url: str,
         timeout_seconds: float,
         transport: httpx.AsyncBaseTransport | None = None,
+        max_attempts: int = 2,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._transport = transport
+        self._max_attempts = max(1, min(max_attempts, 3))
 
     async def generate_json(self, request: LLMRequest) -> LLMResult:
         payload: dict[str, Any] = {
@@ -38,29 +41,45 @@ class DeepSeekProvider:
         if request.thinking_enabled:
             payload["reasoning_effort"] = "high"
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=self._timeout, transport=self._transport
-            ) as client:
-                response = await client.post(
-                    f"{self._base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self._api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-                response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            request_id = exc.response.headers.get("x-request-id")
-            raise LLMProviderError(
-                f"DeepSeek returned HTTP {status}; request_id={request_id or 'unknown'}"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise LLMProviderError(
-                f"DeepSeek request failed: {exc.__class__.__name__}"
-            ) from exc
+        response: httpx.Response | None = None
+        last_error: Exception | None = None
+        async with httpx.AsyncClient(
+            timeout=self._timeout, transport=self._transport
+        ) as client:
+            for attempt in range(1, self._max_attempts + 1):
+                try:
+                    response = await client.post(
+                        f"{self._base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self._api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    retryable = exc.response.status_code in {408, 409, 429} or (
+                        exc.response.status_code >= 500
+                    )
+                    if not retryable or attempt == self._max_attempts:
+                        status = exc.response.status_code
+                        request_id = exc.response.headers.get("x-request-id")
+                        raise LLMProviderError(
+                            "DeepSeek request was rejected "
+                            f"(HTTP {status}, request_id={request_id or 'unknown'})"
+                        ) from exc
+                except httpx.RequestError as exc:
+                    last_error = exc
+                    if attempt == self._max_attempts:
+                        raise LLMProviderError(
+                            f"DeepSeek request failed: {exc.__class__.__name__}"
+                        ) from exc
+                await asyncio.sleep(0.4 * attempt)
+
+        if response is None:
+            raise LLMProviderError("DeepSeek request failed") from last_error
 
         try:
             data = response.json()

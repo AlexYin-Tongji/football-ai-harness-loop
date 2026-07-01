@@ -24,6 +24,11 @@ const ui = {
 };
 
 const defaults = {
+  daily_football_digest: {
+    subject: "今日球脉｜世界杯与夏季转会窗",
+    focus: "世界杯, 今日看点, 转会进展, 绯闻雷达",
+    hint: "赛事与转会由两个研究桌分别处理，再由总编辑整合成一份每日情报。",
+  },
   world_cup_daily: {
     subject: "FIFA World Cup 2026｜今日重点与淘汰赛观察",
     focus: "昨日赛果, 晋级形势, 今日看点",
@@ -41,11 +46,10 @@ const defaults = {
   },
 };
 
-let selected = "world_cup_daily";
+let selected = "daily_football_digest";
 let latest = null;
 let latestUsedEvidence = [];
 let editing = false;
-let progressTimer = null;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -86,7 +90,7 @@ function requestPayload() {
 function predictionView(prediction) {
   if (!prediction) return null;
   const block = el("section", "prediction-block");
-  block.append(el("h3", "", "赛前概率判断"));
+  block.append(el("h3", "", "球脉综合预测"));
   const grid = el("div", "prediction-grid");
   [
     ["主胜", prediction.home_win],
@@ -101,6 +105,43 @@ function predictionView(prediction) {
     grid.append(cell);
   });
   block.append(grid);
+  if (prediction.statistical_baseline) {
+    const baseline = prediction.statistical_baseline;
+    const baselineRow = el("div", "statistical-baseline");
+    baselineRow.append(
+      el("strong", "", "可复现统计基线"),
+      el(
+        "p",
+        "",
+        `主胜 ${Math.round(baseline.home_win * 100)}% · 平 ${Math.round(baseline.draw * 100)}% · 客胜 ${Math.round(baseline.away_win * 100)}%`,
+      ),
+      el(
+        "small",
+        "",
+        `${baseline.method === "elo_poisson" ? "Elo + Poisson" : "Poisson"} · 预期进球 ${baseline.expected_home_goals}:${baseline.expected_away_goals} · 样本 ${baseline.sample_size_home}/${baseline.sample_size_away} 场`,
+      ),
+    );
+    block.append(baselineRow);
+  }
+  if (prediction.external_predictions?.length) {
+    const comparisons = el("div", "external-predictions");
+    comparisons.append(el("h4", "", "外部观点对照"));
+    prediction.external_predictions.forEach((item) => {
+      const row = el("div", "external-prediction");
+      row.append(el("strong", "", item.source_name), el("p", "", item.summary));
+      if (item.home_win !== null && item.home_win !== undefined) {
+        row.append(
+          el(
+            "small",
+            "",
+            `主胜 ${Math.round(item.home_win * 100)}% · 平 ${Math.round(item.draw * 100)}% · 客胜 ${Math.round(item.away_win * 100)}%`,
+          ),
+        );
+      }
+      comparisons.append(row);
+    });
+    block.append(comparisons);
+  }
   return block;
 }
 
@@ -112,7 +153,12 @@ function editableNode(tag, className, text, exportKind) {
 }
 
 function sourceLink(evidence) {
-  const link = el("a", "evidence-link", `来源：${evidence.title}`);
+  const lead = evidence.verification_status === "unverified_lead";
+  const link = el(
+    "a",
+    `evidence-link${lead ? " unverified" : ""}`,
+    `${lead ? "未核实线索" : "来源"}：${evidence.title}`,
+  );
   link.href = evidence.url;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
@@ -215,18 +261,33 @@ function reportAsText() {
 function startProgress() {
   ui.progress.hidden = false;
   const steps = [...ui.progress.querySelectorAll("span")];
-  let current = 0;
   steps.forEach((step, index) => step.classList.toggle("active", index === 0));
-  progressTimer = window.setInterval(() => {
-    current = Math.min(current + 1, steps.length - 1);
-    steps.forEach((step, index) => step.classList.toggle("active", index <= current));
-  }, 2200);
 }
 
 function stopProgress() {
-  if (progressTimer) window.clearInterval(progressTimer);
-  progressTimer = null;
   ui.progress.hidden = true;
+}
+
+function updateProgress(progress) {
+  const steps = [...ui.progress.querySelectorAll("span")];
+  const current = Math.min(
+    steps.length - 1,
+    Math.floor((Math.max(0, progress) / 100) * steps.length),
+  );
+  steps.forEach((step, index) => step.classList.toggle("active", index <= current));
+}
+
+async function waitForJob(jobId) {
+  for (let attempt = 0; attempt < 900; attempt += 1) {
+    const response = await fetch(`/v1/research/jobs/${jobId}`);
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.detail || "无法读取任务进度");
+    updateProgress(job.progress);
+    if (job.status === "completed") return job.result;
+    if (job.status === "failed") throw new Error(job.error || "报告生成失败");
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+  throw new Error("研究任务超时，请稍后重试");
 }
 
 async function loadStatus() {
@@ -257,13 +318,14 @@ ui.form.addEventListener("submit", async (event) => {
   ui.button.querySelector("span").textContent = "正在研究…";
   startProgress();
   try {
-    const response = await fetch("/v1/research/reports", {
+    const response = await fetch("/v1/research/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestPayload()),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "报告生成失败");
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.detail || "报告生成失败");
+    const data = await waitForJob(job.id);
     render(data);
   } catch (error) {
     ui.error.textContent = error.message || "暂时无法生成，请稍后再试。";

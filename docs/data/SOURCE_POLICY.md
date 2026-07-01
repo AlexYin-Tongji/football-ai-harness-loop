@@ -102,7 +102,7 @@ confidence = source_prior
 
 ### 新闻发现
 
-1. 媒体/俱乐部官方 RSS 与 API。
+1. 媒体/俱乐部官方 RSS 与 API。当前开发源包括 Guardian Football RSS 与 BBC Sport Football RSS；只保存元数据和短摘录，并链接原文。
 2. 商业新闻检索 API（生产套餐）。
 3. GDELT 用于多语言线索发现，不自动视为事实来源。
 4. 允许抓取的站点适配器作为补充，并设置低频与缓存。

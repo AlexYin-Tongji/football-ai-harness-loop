@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import httpx
 
@@ -43,3 +44,36 @@ def test_admin_catalog_requires_token_and_groups_data() -> None:
         for layer in payload["layers"].values()
         for entity in layer
     )
+
+
+def test_prediction_result_write_requires_explicit_role(tmp_path: Path) -> None:
+    settings = Settings(
+        admin_enabled=True,
+        admin_token="admin-test-token",
+        database_path=tmp_path / "admin.db",
+    )
+    app = create_app(settings, MockProvider())
+
+    async def scenario() -> tuple[httpx.Response, httpx.Response]:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            denied = await client.post(
+                "/v1/admin/prediction-outcomes",
+                headers={"X-Admin-Token": "admin-test-token"},
+                json={"job_id": "missing", "outcome": "home"},
+            )
+            allowed_role = await client.post(
+                "/v1/admin/prediction-outcomes",
+                headers={
+                    "X-Admin-Token": "admin-test-token",
+                    "X-Admin-Role": "result_writer",
+                },
+                json={"job_id": "missing", "outcome": "home"},
+            )
+            return denied, allowed_role
+
+    denied, allowed_role = asyncio.run(scenario())
+
+    assert denied.status_code == 403
+    assert allowed_role.status_code == 422

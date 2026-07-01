@@ -41,6 +41,19 @@
       "store_policy": "metadata_and_excerpt_only_no_full_text"
     },
     {
+      "id": "bbc-football-rss",
+      "name": "BBC Sport Football RSS",
+      "category": "news_discovery",
+      "trust_tier": "S1_publisher_feed",
+      "access": "rss",
+      "production_status": "approved_development_noncommercial",
+      "base_url": "https://feeds.bbci.co.uk/sport/football/rss.xml",
+      "docs_url": "https://support.bbc.co.uk/platform/feeds/SportFeeds.htm",
+      "credential_env": null,
+      "allowed_content": ["title", "url", "published_at", "description"],
+      "store_policy": "metadata_and_excerpt_only_no_full_text"
+    },
+    {
       "id": "fifa-official",
       "name": "FIFA",
       "category": "official_verification",

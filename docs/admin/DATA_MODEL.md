@@ -12,6 +12,6 @@
 
 `source_items` 只保存标题、URL、发布时间、来源、语言和短摘录；完整新闻正文不入库。`evidence` 是事实层，每条记录包含 `source_item_id`、规范化 claim、事件时间、抓取时间、信任等级和校验状态。报告引用 evidence，而不是引用聊天记录。
 
-建议生产使用 PostgreSQL：事件版本采用 append-only；报告和预测用不可变版本；检索向量仅是索引，原始事实仍以关系记录为准。运行日志采用短期留存，审计日志独立长期留存。后台接口 `/v1/admin/catalog` 默认返回 404，只有同时启用 `ADMIN_ENABLED=true` 且提供正确 `X-Admin-Token` 才可访问。
+本地 Beta 已使用 SQLite WAL 持久化 `research_jobs`、`prediction_outcomes` 与 `audit_logs`；数据库文件不进入 Git。服务重启会明确中断未完成模型调用。生产仍使用 PostgreSQL/Temporal：事件版本 append-only，报告和预测不可变，检索向量仅是索引。后台接口默认隐藏，只有启用 `ADMIN_ENABLED=true` 且提供正确 `X-Admin-Token` 才可访问；赛果写入还要求 `X-Admin-Role: result_writer`。
 
 权限角色至少拆分为 `source_admin`、`evidence_reviewer`、`editor`、`result_writer`、`model_admin` 与 `audit_reader`，禁止使用一个万能后台账号。

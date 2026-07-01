@@ -118,7 +118,7 @@ def test_workbench_and_capabilities_are_available() -> None:
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
     assert capabilities.status_code == 200
     payload = capabilities.json()
-    assert len(payload["skills"]) == 3
+    assert len(payload["skills"]) == 4
     assert payload["provider"] == "mock"
     assert capabilities.headers["cache-control"] == "no-store"
 
@@ -184,7 +184,7 @@ def test_research_endpoint_collects_real_evidence(monkeypatch) -> None:
         ]
 
     monkeypatch.setattr(
-        "services.report_api.main.collect_guardian_evidence", fake_collect
+        "services.report_api.main.collect_research_evidence", fake_collect
     )
     response = asyncio.run(
         post_json(
@@ -201,7 +201,7 @@ def test_research_endpoint_collects_real_evidence(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["evidence"]) == 2
-    assert payload["run"]["tool_rounds_used"] == 1
+    assert payload["run"]["tool_rounds_used"] == 2
 
 
 def test_product_status_hides_model_details() -> None:
@@ -211,5 +211,33 @@ def test_product_status_hides_model_details() -> None:
     assert response.json() == {
         "generation_ready": False,
         "mode": "demo",
-        "source": "Guardian Football RSS",
+        "source": "批准来源池（Guardian/BBC RSS + GDELT）",
     }
+
+
+def test_daily_football_digest_runs_two_desks_and_editor() -> None:
+    response = asyncio.run(
+        post_json(
+            "/v1/reports/generate",
+            {
+                "report_type": "daily_football_digest",
+                "subject": "今日球脉",
+                "report_date": "2026-07-01",
+                "data_cutoff": "2026-07-01T08:00:00Z",
+                "focus": ["世界杯", "转会"],
+                "evidence": [
+                    {
+                        "id": "ev-1",
+                        "title": "Daily football update",
+                        "url": "https://example.com/football",
+                        "published_at": "2026-07-01T07:00:00Z",
+                        "source_name": "Approved source",
+                        "summary": "Match and transfer context.",
+                    }
+                ],
+            },
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["attempts"] == 5

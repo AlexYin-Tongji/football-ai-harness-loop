@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from secrets import compare_digest
@@ -8,16 +9,21 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from services.report_api.admin import AdminCatalog, data_catalog
+from services.report_api.admin import (
+    AdminCatalog,
+    PredictionOutcomeRequest,
+    data_catalog,
+)
 from services.report_api.config import Settings
 from services.report_api.domain import (
     ConsumerReportRequest,
     ReportRequest,
     ReportResponse,
+    ReportType,
 )
 from services.report_api.evidence import (
     EvidenceCollectionError,
-    collect_guardian_evidence,
+    collect_research_evidence,
 )
 from services.report_api.harness.mcp import load_mcp_capabilities
 from services.report_api.harness.memory import InMemoryRunMemory
@@ -29,10 +35,14 @@ from services.report_api.harness.models import (
 )
 from services.report_api.harness.orchestrator import ReportHarness
 from services.report_api.harness.skills import default_skill_registry
+from services.report_api.jobs import JobView, PersistentJobStore
 from services.report_api.providers.base import LLMProvider, LLMProviderError
 from services.report_api.providers.deepseek import DeepSeekProvider
 from services.report_api.providers.mock import MockProvider
 from services.report_api.service import ReportGenerationError, ReportService
+from services.report_api.structured_match_data import (
+    collect_structured_match_context,
+)
 
 
 def build_provider(settings: Settings) -> LLMProvider:
@@ -42,6 +52,7 @@ def build_provider(settings: Settings) -> LLMProvider:
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
+            max_attempts=2,
         )
     return MockProvider()
 
@@ -63,6 +74,7 @@ def create_app(
     harness = ReportHarness(service, skill_registry, run_memory)
     repository_root = Path(__file__).resolve().parents[2]
     web_root = repository_root / "apps" / "web"
+    job_store = PersistentJobStore(repository_root / settings.database_path)
 
     app = FastAPI(
         title="Football AI Report API",
@@ -70,6 +82,8 @@ def create_app(
         description="Evidence-backed football reports; no social publishing.",
     )
     app.mount("/assets", StaticFiles(directory=web_root / "assets"), name="assets")
+    app.state.background_tasks = set()
+    job_semaphore = asyncio.Semaphore(settings.max_concurrent_jobs)
 
     @app.middleware("http")
     async def privacy_headers(request, call_next):
@@ -89,7 +103,9 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     async def consumer_home() -> FileResponse:
-        return FileResponse(web_root / "index.html")
+        return FileResponse(
+            web_root / "index.html", headers={"Cache-Control": "no-cache"}
+        )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -100,7 +116,7 @@ def create_app(
         return {
             "generation_ready": settings.llm_provider == "deepseek",
             "mode": "live" if settings.llm_provider == "deepseek" else "demo",
-            "source": "Guardian Football RSS",
+            "source": "批准来源池（Guardian/BBC RSS + GDELT）",
         }
 
     @app.get("/v1/admin/catalog", response_model=AdminCatalog)
@@ -138,18 +154,30 @@ def create_app(
         request: ConsumerReportRequest,
     ) -> HarnessRunResponse:
         try:
-            evidence = await collect_guardian_evidence(
+            evidence = await collect_research_evidence(
                 request,
                 max_items={"concise": 6, "standard": 10, "deep": 12}[
                     request.length.value
                 ],
             )
+            match_context = None
+            if request.report_type == ReportType.MATCH_PREDICTION:
+                try:
+                    structured, match_context = (
+                        await collect_structured_match_context(request)
+                    )
+                    evidence = [*structured, *evidence]
+                except Exception:
+                    match_context = None
             report_request = ReportRequest(
                 **request.model_dump(),
                 data_cutoff=datetime.now(UTC),
                 evidence=evidence,
+                match_context=match_context,
             )
-            return await harness.run(report_request, tool_rounds_used=1)
+            return await harness.run(
+                report_request, tool_rounds_used=3 if match_context else 2
+            )
         except EvidenceCollectionError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ReportGenerationError as exc:
@@ -159,6 +187,170 @@ def create_app(
                 status_code=502,
                 detail="AI 服务暂时无法完成报告，请稍后重试",
             ) from exc
+
+    async def execute_research_job_inner(
+        job_id: str, request: ConsumerReportRequest
+    ) -> None:
+        try:
+            job_store.update(
+                job_id,
+                status="running",
+                phase="collecting_sources",
+                progress=10,
+            )
+            evidence = await collect_research_evidence(
+                request,
+                max_items={"concise": 8, "standard": 16, "deep": 24}[
+                    request.length.value
+                ],
+            )
+            match_context = None
+            if request.report_type == ReportType.MATCH_PREDICTION:
+                try:
+                    structured, match_context = (
+                        await collect_structured_match_context(request)
+                    )
+                    evidence = [*structured, *evidence]
+                except Exception:
+                    match_context = None
+            job_store.update(
+                job_id,
+                status="running",
+                phase="evidence_ready",
+                progress=30,
+            )
+            report_request = ReportRequest(
+                **request.model_dump(),
+                data_cutoff=datetime.now(UTC),
+                evidence=evidence,
+                match_context=match_context,
+            )
+            job_store.update(
+                job_id,
+                status="running",
+                phase=(
+                    "prediction_council"
+                    if request.report_type.value == "match_prediction"
+                    else "research_desks"
+                ),
+                progress=45,
+            )
+            def record_progress(phase: str, progress: int) -> None:
+                job_store.update(
+                    job_id,
+                    status="running",
+                    phase=phase,
+                    progress=progress,
+                )
+
+            result = await harness.run(
+                report_request,
+                tool_rounds_used=3 if match_context else 2,
+                progress_callback=record_progress,
+            )
+            job_store.update(
+                job_id,
+                status="completed",
+                phase="completed",
+                progress=100,
+                result=result.model_dump(mode="json"),
+            )
+        except EvidenceCollectionError:
+            job_store.update(
+                job_id,
+                status="failed",
+                phase="failed",
+                progress=100,
+                error="近期资料不足或来源暂时不可用，请调整主题后重试",
+            )
+        except (ReportGenerationError, LLMProviderError):
+            job_store.update(
+                job_id,
+                status="failed",
+                phase="failed",
+                progress=100,
+                error="AI 研究未能通过质量校验，请稍后重试",
+            )
+        except Exception:
+            job_store.update(
+                job_id,
+                status="failed",
+                phase="failed",
+                progress=100,
+                error="任务遇到内部错误并已安全停止，请稍后重试",
+            )
+
+    async def execute_research_job(
+        job_id: str, request: ConsumerReportRequest
+    ) -> None:
+        job_store.update(
+            job_id,
+            status="queued",
+            phase="waiting_for_capacity",
+            progress=2,
+        )
+        async with job_semaphore:
+            await execute_research_job_inner(job_id, request)
+
+    @app.post("/v1/research/jobs", response_model=JobView, status_code=202)
+    async def create_research_job(request: ConsumerReportRequest) -> JobView:
+        job = job_store.create(request)
+        task = asyncio.create_task(execute_research_job(job.id, request))
+        app.state.background_tasks.add(task)
+        task.add_done_callback(app.state.background_tasks.discard)
+        return job
+
+    @app.get("/v1/research/jobs/{job_id}", response_model=JobView)
+    async def get_research_job(job_id: str) -> JobView:
+        try:
+            return job_store.get(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="job not found") from exc
+
+    @app.get("/v1/admin/jobs", response_model=list[JobView])
+    async def admin_jobs(
+        x_admin_token: str | None = Header(default=None),
+    ) -> list[JobView]:
+        if not settings.admin_enabled:
+            raise HTTPException(status_code=404, detail="not found")
+        if not x_admin_token or not compare_digest(
+            x_admin_token, settings.admin_token or ""
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return job_store.list_recent()
+
+    @app.get("/v1/admin/overview")
+    async def admin_overview(
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict:
+        if not settings.admin_enabled:
+            raise HTTPException(status_code=404, detail="not found")
+        if not x_admin_token or not compare_digest(
+            x_admin_token, settings.admin_token or ""
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return job_store.overview()
+
+    @app.post("/v1/admin/prediction-outcomes")
+    async def record_prediction_outcome(
+        request: PredictionOutcomeRequest,
+        x_admin_token: str | None = Header(default=None),
+        x_admin_role: str | None = Header(default=None),
+    ) -> dict:
+        if not settings.admin_enabled:
+            raise HTTPException(status_code=404, detail="not found")
+        if not x_admin_token or not compare_digest(
+            x_admin_token, settings.admin_token or ""
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        if x_admin_role != "result_writer":
+            raise HTTPException(status_code=403, detail="result_writer role required")
+        try:
+            return job_store.record_prediction_outcome(
+                request.job_id, request.outcome
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/v1/runs", response_model=list[HarnessTrace])
     async def list_runs() -> list[HarnessTrace]:

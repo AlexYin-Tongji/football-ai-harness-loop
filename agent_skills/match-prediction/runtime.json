@@ -1,12 +1,12 @@
 {
   "id": "match-prediction",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "report_type": "match_prediction",
   "max_model_rounds": 5,
   "max_tool_rounds": 6,
-  "phases": ["snapshot", "form_analyst", "skeptic", "judge", "validate", "human_review"],
+  "phases": ["snapshot", "statistical_baseline", "form_analyst", "skeptic", "judge", "external_comparison", "validate", "human_review"],
   "mcp_servers": ["source-registry", "football-data", "rss-news", "news-discovery"],
   "memory_read": ["source_reliability", "prediction_calibration"],
   "memory_write": ["run_summary", "prediction_snapshot"],
-  "quality_gates": ["cutoff_integrity", "probability_sum", "balanced_evidence", "citation_integrity", "privacy"]
+  "quality_gates": ["cutoff_integrity", "probability_sum", "baseline_integrity", "external_prediction_source", "balanced_evidence", "citation_integrity", "privacy"]
 }

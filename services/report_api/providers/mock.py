@@ -11,6 +11,45 @@ class MockProvider:
         evidence_id = request.metadata["evidence_ids"][0]
         subject = request.metadata["subject"]
 
+        if request.purpose.startswith("daily_research:"):
+            desk = request.metadata["desk"]
+            return LLMResult(
+                output={
+                    "desk": desk,
+                    "key_items": [
+                        {
+                            "claim": "演示研究条目",
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "rumor_items": [],
+                    "conflicts": [],
+                    "unknowns": ["mock 模式没有实时研究资料"],
+                },
+                provider="mock",
+                model=request.model,
+            )
+
+        if request.purpose.startswith("daily_desk_write:"):
+            desk = request.metadata["desk"]
+            return LLMResult(
+                output={
+                    "desk": desk,
+                    "heading": "赛场脉搏" if desk == "match_news" else "转会雷达",
+                    "summary": "这是经过独立研究桌整理的演示栏目。",
+                    "sections": [
+                        {
+                            "heading": "今日要点",
+                            "body": "正式模式会保留证据等级并区分事实与传闻。",
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "warnings": ["当前为 mock 演示。"],
+                },
+                provider="mock",
+                model=request.model,
+            )
+
         if request.purpose.startswith("prediction_opinion:"):
             role = request.metadata["opinion_role"]
             return LLMResult(
@@ -33,6 +72,22 @@ class MockProvider:
             )
 
         templates = {
+            "daily_football_digest": {
+                "summary": (
+                    "这是一份今日球脉演示，将赛事动态与转会市场分桌研究，"
+                    "再合并为一份有来源、有传闻等级的每日足球情报。"
+                ),
+                "sections": [
+                    (
+                        "赛场与赛事脉搏",
+                        "整理赛果、赛程、球队动态与今日观赛重点。",
+                    ),
+                    (
+                        "转会市场雷达",
+                        "同时保留官宣、实质进展与明确标注的未核实传闻。",
+                    ),
+                ],
+            },
             "world_cup_daily": {
                 "summary": (
                     "这是一份世界杯日报演示。正式版本将把官方赛果、晋级形势与"

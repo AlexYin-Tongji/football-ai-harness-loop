@@ -36,8 +36,8 @@ def test_skill_registry_has_a_bounded_skill_for_each_report() -> None:
 
     skills = registry.list()
 
-    assert len(skills) == 3
-    assert all(1 <= skill.max_model_rounds <= 5 for skill in skills)
+    assert len(skills) == 4
+    assert all(1 <= skill.max_model_rounds <= 8 for skill in skills)
     assert all(skill.quality_gates for skill in skills)
 
 

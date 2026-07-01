@@ -17,6 +17,13 @@ uvicorn services.report_api.main:app --reload
 - API 文档：`http://127.0.0.1:8000/docs`
 - 能力清单：`http://127.0.0.1:8000/v1/system/capabilities`
 
+公共页面使用持久化任务接口：
+
+- `POST /v1/research/jobs` 创建任务并立即返回任务 ID。
+- `GET /v1/research/jobs/{id}` 返回真实阶段、进度和最终报告。
+- 同步兼容接口 `POST /v1/research/reports` 仍保留给内部测试。
+- 本地任务数据库默认为 `data/footpulse.db`，不会进入 Git。
+
 默认使用 `LLM_PROVIDER=mock`，页面、Harness 和测试均不需要真实密钥。
 
 ## 安全调用 DeepSeek

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,8 @@ class Settings:
     report_max_attempts: int = 2
     admin_enabled: bool = False
     admin_token: str | None = None
+    database_path: Path = Path("data/footpulse.db")
+    max_concurrent_jobs: int = 2
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -34,6 +37,10 @@ class Settings:
             report_max_attempts=int(os.getenv("REPORT_MAX_ATTEMPTS", "2")),
             admin_enabled=os.getenv("ADMIN_ENABLED", "false").lower() == "true",
             admin_token=os.getenv("ADMIN_TOKEN") or None,
+            database_path=Path(
+                os.getenv("FOOTPULSE_DATABASE_PATH", "data/footpulse.db")
+            ),
+            max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "2")),
         )
         settings.validate()
         return settings
@@ -51,3 +58,5 @@ class Settings:
             raise ValueError("REPORT_MAX_ATTEMPTS must be between 1 and 3")
         if self.admin_enabled and not self.admin_token:
             raise ValueError("ADMIN_TOKEN is required when ADMIN_ENABLED=true")
+        if not 1 <= self.max_concurrent_jobs <= 4:
+            raise ValueError("MAX_CONCURRENT_JOBS must be between 1 and 4")

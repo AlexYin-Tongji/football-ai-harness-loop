@@ -46,6 +46,18 @@ def validate_generated_report(
 
     for section in report.sections:
         referenced_ids.update(section.evidence_ids)
+        discovery_ids = {
+            item.id
+            for item in request.evidence
+            if item.verification_status == "unverified_lead"
+        }
+        if discovery_ids.intersection(section.evidence_ids) and not re.search(
+            r"传闻|据报道|未核实|线索|尚未确认", section.body
+        ):
+            errors.append(
+                f"section '{section.heading}' cites discovery leads "
+                "without a rumor label"
+            )
 
     if request.report_type == ReportType.MATCH_PREDICTION:
         if report.prediction is None:
@@ -61,6 +73,31 @@ def validate_generated_report(
                 *prediction.counter_factors,
             ]:
                 referenced_ids.update(factor.evidence_ids)
+            for external in prediction.external_predictions:
+                referenced_ids.update(external.evidence_ids)
+                cited = [
+                    item
+                    for item in request.evidence
+                    if item.id in external.evidence_ids
+                ]
+                source_text = " ".join(
+                    f"{item.source_name} {item.title} {item.summary}" for item in cited
+                )
+                if external.source_name.casefold() not in source_text.casefold():
+                    errors.append(
+                        f"external prediction source is not present in cited evidence: "
+                        f"{external.source_name}"
+                    )
+                if external.home_win is not None and not re.search(
+                    r"\d+(?:\.\d+)?\s*%|probability|chance|odds|概率|胜率",
+                    source_text,
+                    re.I,
+                ):
+                    errors.append(
+                        "numeric external prediction lacks a numeric source statement"
+                    )
+            if prediction.statistical_baseline is not None:
+                errors.append("statistical_baseline must be injected by the harness")
 
             if request.match_stage == MatchStage.KNOCKOUT:
                 if prediction.qualification is None:
