@@ -6,7 +6,7 @@ from services.report_api.domain import (
     RecentMatchSample,
     ReportRequest,
 )
-from services.report_api.providers.base import LLMRequest, LLMResult
+from services.report_api.providers.base import LLMProviderError, LLMRequest, LLMResult
 from services.report_api.service import ReportService
 
 
@@ -82,6 +82,45 @@ class CapturingDailyProvider:
             provider="stub",
             model=request.model,
         )
+
+
+class FinalTransientThenStableProvider(CapturingDailyProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.final_attempts: list[LLMRequest] = []
+
+    async def generate_json(self, request: LLMRequest) -> LLMResult:
+        final_purposes = {
+            "daily_football_digest",
+            "daily_football_digest:stable_final",
+        }
+        if request.purpose in final_purposes:
+            self.final_attempts.append(request)
+            if request.purpose == "daily_football_digest":
+                raise LLMProviderError(
+                    "DeepSeek request failed: RemoteProtocolError",
+                    kind="transient",
+                )
+        return await super().generate_json(request)
+
+
+class FinalAndStableBothFailProvider(CapturingDailyProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.final_attempts: list[str] = []
+
+    async def generate_json(self, request: LLMRequest) -> LLMResult:
+        final_purposes = {
+            "daily_football_digest",
+            "daily_football_digest:stable_final",
+        }
+        if request.purpose in final_purposes:
+            self.final_attempts.append(request.purpose)
+            raise LLMProviderError(
+                "DeepSeek request failed: RemoteProtocolError",
+                kind="transient",
+            )
+        return await super().generate_json(request)
 
 
 def request_payload() -> ReportRequest:
@@ -384,3 +423,51 @@ def test_daily_digest_final_editor_uses_compacted_evidence() -> None:
     assert "ev-24" in final_text
     assert len(final_text) < 45_000
     assert provider.final_request.max_output_tokens == 4500
+
+
+def test_daily_digest_recovers_final_transient_with_stable_mode() -> None:
+    provider = FinalTransientThenStableProvider()
+    service = ReportService(
+        provider=provider,
+        model="deepseek-v4-pro",
+        flash_model="deepseek-v4-flash",
+        max_output_tokens=6000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(service.generate(daily_digest_request_with_long_evidence()))
+
+    assert result.report.title == "今日球脉"
+    assert result.attempts == 6
+    assert [item.purpose for item in provider.final_attempts] == [
+        "daily_football_digest",
+        "daily_football_digest:stable_final",
+    ]
+    stable_request = provider.final_attempts[-1]
+    assert stable_request.thinking_enabled is False
+    assert stable_request.max_output_tokens == 3300
+    assert any("稳定合稿模式" in item for item in result.report.warnings)
+
+
+def test_daily_digest_uses_deterministic_finalizer_when_all_final_llm_fails() -> None:
+    provider = FinalAndStableBothFailProvider()
+    service = ReportService(
+        provider=provider,
+        model="deepseek-v4-pro",
+        flash_model="deepseek-v4-flash",
+        max_output_tokens=6000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(service.generate(daily_digest_request_with_long_evidence()))
+
+    assert result.provider == "harness"
+    assert result.model == "deterministic-daily-finalizer"
+    assert result.attempts == 7
+    assert provider.final_attempts == [
+        "daily_football_digest",
+        "daily_football_digest:stable_final",
+    ]
+    assert "保守合稿版" in result.report.title
+    assert len(result.report.sections) >= 1
+    assert any("保守版本" in item for item in result.report.warnings)

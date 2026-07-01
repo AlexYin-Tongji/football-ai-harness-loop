@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from services.report_api.domain import (
     DeskBrief,
     DeskDraft,
+    GeneratedReport,
     PredictionOpinion,
     ReportRequest,
     ReportResponse,
@@ -27,7 +28,12 @@ from services.report_api.prompts import (
     append_revision_request,
     build_messages,
 )
-from services.report_api.providers.base import LLMProvider, LLMRequest, LLMResult
+from services.report_api.providers.base import (
+    LLMProvider,
+    LLMProviderError,
+    LLMRequest,
+    LLMResult,
+)
 from services.report_api.validation import (
     ReportValidationError,
     normalize_generated_output,
@@ -77,6 +83,35 @@ def _final_output_budget(request: ReportRequest, configured_limit: int) -> int:
     )
 
 
+def _stable_final_output_budget(request: ReportRequest, configured_limit: int) -> int:
+    if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:
+        return min(
+            configured_limit,
+            {"concise": 2000, "standard": 2800, "deep": 3300}[
+                request.length.value
+            ],
+        )
+    if request.report_type == ReportType.MATCH_PREDICTION:
+        return min(configured_limit, 3000)
+    return min(
+        configured_limit,
+        {"concise": 1600, "standard": 2600, "deep": 3200}[request.length.value],
+    )
+
+
+def _is_recoverable_final_provider_error(exc: LLMProviderError) -> bool:
+    return exc.kind in {"timeout", "transient", "rate_limit", "invalid_response"}
+
+
+def _append_report_warning(report: GeneratedReport, warning: str) -> None:
+    if warning in report.warnings:
+        return
+    if len(report.warnings) < 12:
+        report.warnings.append(warning)
+    elif report.warnings:
+        report.warnings[-1] = warning
+
+
 class ReportService:
     def __init__(
         self,
@@ -108,6 +143,7 @@ class ReportService:
     ) -> ReportResponse:
         messages = build_messages(request, skill_instructions)
         council_results: list[LLMResult] = []
+        desk_drafts: list[DeskDraft] = []
         statistical_baseline = build_statistical_baseline(request.match_context)
         sourced_external_predictions = extract_external_predictions(request.evidence)
         if request.report_type == ReportType.MATCH_PREDICTION:
@@ -195,6 +231,8 @@ class ReportService:
             max(1, total_round_limit - len(council_results)),
         )
 
+        recovery_rounds = 0
+        used_stable_final = False
         for attempt in range(1, attempt_limit + 1):
             if progress_callback:
                 progress_callback("editor_synthesis", 82)
@@ -227,7 +265,33 @@ class ReportService:
                     "evidence_ids": [item.id for item in request.evidence],
                 },
             )
-            last_result = await self._provider.generate_json(llm_request)
+            try:
+                last_result = await self._provider.generate_json(llm_request)
+            except LLMProviderError as exc:
+                if not _is_recoverable_final_provider_error(exc):
+                    raise
+                recovery_rounds += 1
+                used_stable_final = True
+                stable_request = self._stable_final_request(
+                    llm_request, request, exc
+                )
+                try:
+                    last_result = await self._provider.generate_json(stable_request)
+                except LLMProviderError as stable_exc:
+                    if (
+                        request.report_type == ReportType.DAILY_FOOTBALL_DIGEST
+                        and desk_drafts
+                        and _is_recoverable_final_provider_error(stable_exc)
+                    ):
+                        recovery_rounds += 1
+                        return self._deterministic_daily_response(
+                            request,
+                            desk_drafts,
+                            council_results,
+                            attempts=attempt + len(council_results) + recovery_rounds,
+                            progress_callback=progress_callback,
+                        )
+                    raise
             normalized_output = normalize_generated_output(last_result.output, request)
             try:
                 report = validate_generated_report(normalized_output, request)
@@ -239,6 +303,13 @@ class ReportService:
                     )
                     continue
                 break
+
+            if used_stable_final:
+                _append_report_warning(
+                    report,
+                    "高思考总编辑请求曾遇到模型连接异常；系统已使用稳定合稿模式恢复，"
+                    "请发布前重点复核取舍和措辞。",
+                )
 
             if report.prediction is not None:
                 report.prediction.statistical_baseline = statistical_baseline
@@ -273,7 +344,7 @@ class ReportService:
                 prompt_version=PROMPT_VERSION,
                 data_cutoff=request.data_cutoff,
                 generated_at=datetime.now(UTC),
-                attempts=attempt + len(council_results),
+                attempts=attempt + len(council_results) + recovery_rounds,
                 usage=TokenUsage(
                     input_tokens=last_result.input_tokens
                     + sum(item.input_tokens for item in council_results),
@@ -285,6 +356,89 @@ class ReportService:
 
         raise ReportGenerationError(
             "report validation failed after bounded retries: " + "; ".join(last_errors)
+        )
+
+    def _stable_final_request(
+        self,
+        llm_request: LLMRequest,
+        request: ReportRequest,
+        exc: LLMProviderError,
+    ) -> LLMRequest:
+        return LLMRequest(
+            purpose=f"{request.report_type.value}:stable_final",
+            model=llm_request.model,
+            messages=[
+                *llm_request.messages,
+                {
+                    "role": "user",
+                    "content": (
+                        "上一轮高思考总编辑请求未能稳定返回。现在进入稳定合稿模式："
+                        "只输出一份较短但完整的 JSON 报告；优先保留已证实事实、"
+                        "传闻标签、来源引用和主要结论；可减少人物卡、时间线和修辞，"
+                        "但不得新增证据外事实。warnings 中说明已启用稳定合稿。"
+                        f"上游错误类型：{exc.kind}。"
+                    ),
+                },
+            ],
+            thinking_enabled=False,
+            max_output_tokens=_stable_final_output_budget(
+                request, self._max_output_tokens
+            ),
+            metadata={
+                **llm_request.metadata,
+                "recovery": "stable_final",
+                "provider_error_kind": exc.kind,
+            },
+        )
+
+    def _deterministic_daily_response(
+        self,
+        request: ReportRequest,
+        desk_drafts: list[DeskDraft],
+        council_results: list[LLMResult],
+        *,
+        attempts: int,
+        progress_callback: Callable[[str, int], None] | None = None,
+    ) -> ReportResponse:
+        if progress_callback:
+            progress_callback("deterministic_finalizer", 88)
+        sections = [
+            section
+            for draft in desk_drafts
+            for section in draft.sections
+        ][:10]
+        warnings = [
+            "高思考总编辑与稳定合稿均遇到模型连接异常；系统已根据完成的分桌草稿"
+            "生成保守版本，请发布前重点复核结构和措辞。"
+        ]
+        for draft in desk_drafts:
+            warnings.extend(draft.warnings)
+        report = validate_generated_report(
+            GeneratedReport(
+                title=f"{request.subject}｜保守合稿版",
+                executive_summary="；".join(
+                    _shorten(draft.summary, 450) for draft in desk_drafts
+                )
+                or "系统已根据完成的分桌草稿生成保守版今日足球消息汇总。",
+                sections=sections,
+                warnings=list(dict.fromkeys(warnings))[:12],
+                prediction=None,
+            ).model_dump(mode="json"),
+            request,
+        )
+        return ReportResponse(
+            id=str(uuid4()),
+            provider="harness",
+            model="deterministic-daily-finalizer",
+            prompt_version=PROMPT_VERSION,
+            data_cutoff=request.data_cutoff,
+            generated_at=datetime.now(UTC),
+            attempts=attempts,
+            usage=TokenUsage(
+                input_tokens=sum(item.input_tokens for item in council_results),
+                output_tokens=sum(item.output_tokens for item in council_results),
+            ),
+            report=report,
         )
 
     async def _run_daily_desks(

@@ -34,6 +34,10 @@ DeepSeek 的长耗时推理请求可能在上游已经开始响应后断开连�
 10. 人物卡指标与比赛时间线属于编辑增强层。若模型给出的单个指标或分钟无法在引用
     证据中定位，系统移除该可选增强并写入 warning；正文事实、预测概率和引用 ID
     仍按严格质量门处理。
+11. 日报最终阶段必须可恢复：高思考总编辑遇到 transient/timeout 时先切换到
+    `stable_final` 稳定合稿；若稳定合稿仍因可恢复 provider 错误失败，Harness 使用
+    已完成的分桌草稿确定性生成“保守合稿版”，并明确写入 warning。认证、余额、
+    参数错误不走该降级路径。
 
 ## 后果
 
@@ -50,4 +54,6 @@ DeepSeek 的长耗时推理请求可能在上游已经开始响应后断开连�
   输出预算不超过 4500 tokens。
 - DeepSeek timeout 与 context/token overflow 必须分开分类，不能都显示为普通连接中断。
 - 无证据支持的人物卡指标与时间线分钟应被移除并记录 warning，不能导致整份日报失败。
+- 模拟高思考总编辑与稳定合稿均遇到 `RemoteProtocolError` 时，日报仍应由
+  deterministic daily finalizer 完成，并标记为保守合稿版。
 - 原有 schema、引用和概率质量门不得放宽。
