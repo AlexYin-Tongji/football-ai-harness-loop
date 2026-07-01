@@ -6,7 +6,7 @@ V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AG
 
 当前阶段：可使用的本地 Beta。真实 RSS → DeepSeek V4 → 引用/概率质量门 → 编辑/导出闭环已跑通；商业上线仍需取得数据许可并接入第二独立来源。
 
-已实现可运行的响应式产品页与 [Report API](services/report_api/README.md)。默认 mock 模式用于开发测试；使用 `scripts/run_deepseek.ps1` 可安全输入密钥并启动真实研究模式，密钥不会写入项目文件。
+已实现可运行的响应式产品页与 [Report API](services/report_api/README.md)。默认 mock 模式用于开发测试；使用 `scripts/run_deepseek.ps1` 可安全输入密钥并启动真实研究模式，密钥不会写入 Git。若本地存在已被忽略的 `.env`，后端会自动读取 DeepSeek、Sportmonks、YouTube 等配置。
 
 ```powershell
 .\scripts\run_deepseek.ps1

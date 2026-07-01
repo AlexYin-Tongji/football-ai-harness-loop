@@ -110,7 +110,7 @@ confidence = source_prior
 ### 新闻发现
 
 1. 媒体/俱乐部官方 RSS 与 API。当前开发源包括 Guardian Football RSS 与 BBC Sport Football RSS；只保存元数据和短摘录，并链接原文。
-2. 商业新闻检索 API（生产套餐）。
+2. 商业新闻检索 API（生产套餐）。NewsAPI.org 适合快速补英文媒体广度；NewsAPI.ai / Event Registry 更适合事件聚类、实体识别和跨语言去重。
 3. GDELT 用于多语言线索发现，不自动视为事实来源。
 4. 允许抓取的站点适配器作为补充，并设置低频与缓存。
 
@@ -139,8 +139,10 @@ StatsBomb Open Data 可用于历史研究，使用时遵守其署名和许可要
 - [FIFA 男足世界排名](https://inside.fifa.com/fifa-world-ranking/men)
 - [football-data.org v4 文档](https://docs.football-data.org/general/v4/index.html)
 - [NewsAPI 文档](https://newsapi.org/docs)
+- [NewsAPI.ai / Event Registry](https://newsapi.ai/)
 - [GDELT DOC 2.0](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/)
 - [StatsBomb Open Data](https://github.com/statsbomb/open-data)
 - [Sportmonks Football API v3](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints)
+- [API-Football 文档](https://www.api-football.com/documentation-v3)
 - [YouTube Data API search.list](https://developers.google.com/youtube/v3/docs/search/list)
 - [Wikimedia Commons API](https://commons.wikimedia.org/wiki/Commons:API)

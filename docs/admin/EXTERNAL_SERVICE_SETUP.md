@@ -21,6 +21,16 @@ OAuth；API Key 建议限制为该 API，并按部署环境限制来源。
 建议先提供的官方频道 ID：FIFA、各参赛足协，以及确有需要的联赛/俱乐部频道。
 频道 ID 不是密钥，但必须人工确认频道真实性。
 
+本地 Beta 可把这些值放入 Git 忽略的 `.env`。后端和 `scripts/run_deepseek.ps1`
+会自动读取 `.env`，但真实值不得提交。首批视频白名单可先使用 FIFA 官方频道：
+
+```text
+YOUTUBE_OFFICIAL_CHANNEL_IDS=UCpcTrCXblq78GZrTUTLWeBw
+```
+
+服务启动后可访问 `/v1/product/status` 查看哪些外部服务已配置；接口只返回布尔状态，
+不返回密钥。
+
 ## 第二组：扩大新闻覆盖
 
 | 配置 | 用途 | 必需性 |
@@ -31,11 +41,25 @@ OAuth；API Key 建议限制为该 API，并按部署环境限制来源。
 接入前仍需确认套餐是否允许生产使用、缓存、摘要和再分发。拿到 Key 不等于自动取得
 新闻正文、摄影图片或视频的版权。
 
+### 推荐供应商取舍
+
+| 方向 | 推荐提供方 | 变量建议 | 何时接入 | 产品判断 |
+|---|---|---|---|---|
+| 新闻发现-免费补广度 | [GDELT DOC 2.0](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/) | 无需 Key | 已接入候选发现层 | 适合扩大语言与地域覆盖；只做线索，不单独当事实来源 |
+| 新闻发现-简单商用 | [NewsAPI.org](https://newsapi.org/pricing) | `NEWS_API_KEY` | 需要稳定英文媒体检索时 | API 简单；生产需 Business/Advanced；不提供完整正文 |
+| 新闻发现-生产增强 | [NewsAPI.ai / Event Registry](https://newsapi.ai/) | `EVENT_REGISTRY_API_KEY` | 需要事件聚类、实体、情绪、多语言深度检索时 | 比 NewsAPI.org 更适合“转会事件簇”和跨语言去重，但需单独评估价格和再分发条款 |
+| 赛程赛果备用 | [football-data.org](https://www.football-data.org/pricing) | `FOOTBALL_DATA_API_KEY` | 预测基线需要第二结构化来源时 | 轻量、便宜，适合兜底核对；深度球员/事件不如 Sportmonks |
+| 结构化足球备用 | [API-Football / API-SPORTS](https://www.api-football.com/documentation-v3) | `API_FOOTBALL_KEY` | Sportmonks 覆盖不足或需要第二付费足球源时 | 覆盖广，可作为竞争性备选；接入前必须先登记 Source Registry |
+| 视觉相关性核验 | [OpenAI Vision](https://developers.openai.com/api/docs/guides/images-vision) | `OPENAI_API_KEY` | 需要判断 Commons 图是否真是目标球员/比赛时 | 适合“图像理解 + 中文解释 + 结构化输出”；成本需单独设预算 |
+| 基础图像安全/标签 | [Google Cloud Vision](https://docs.cloud.google.com/vision/docs) | `GOOGLE_APPLICATION_CREDENTIALS` 或部署 Secret | 需要低成本 OCR、标签、安全识别时 | 适合机器标签，不适合作为球员身份最终判断 |
+
 ## 第三组：自动视觉核验
 
 当前 Commons 图片会校验许可证，但画面相关性仍标记为“待人工确认”。若需要自动确认
 图片中是否为目标球员或对应比赛，还需选择一个支持图像输入的模型供应商并提供 API
-Key。供应商尚未锁定；确定后需要新增独立配置、成本上限和视觉结论审计字段。
+Key。建议优先做 OpenAI Vision 连接器：输入 Commons 缩略图、目标球员英文名和证据
+标题，只输出 `matched / uncertain / rejected`、理由和成本；`uncertain` 仍交给人工确认。
+Google Cloud Vision 可作为低成本安全标签和 OCR 辅助，不单独决定“是否为该球员”。
 
 ## 非外部申请项
 
@@ -55,6 +79,9 @@ YOUTUBE_API_KEY=<secret>
 YOUTUBE_OFFICIAL_CHANNEL_IDS=<channel-id-1>,<channel-id-2>
 NEWS_API_KEY=<optional-secret>
 FOOTBALL_DATA_API_KEY=<optional-secret>
+EVENT_REGISTRY_API_KEY=<optional-secret>
+API_FOOTBALL_KEY=<optional-secret>
+OPENAI_API_KEY=<optional-secret-for-vision>
 ```
 
 已在聊天或其他明文渠道出现过的密钥，应先轮换再用于生产。

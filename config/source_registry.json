@@ -120,6 +120,48 @@
       "store_policy": "metadata_only_no_full_text"
     },
     {
+      "id": "event-registry-newsapi-ai",
+      "name": "NewsAPI.ai / Event Registry",
+      "category": "news_discovery",
+      "trust_tier": "S2_discovery_index",
+      "access": "api",
+      "production_status": "candidate_requires_contract_review",
+      "base_url": "https://eventregistry.org/api/v1",
+      "docs_url": "https://newsapi.ai/",
+      "credential_env": "EVENT_REGISTRY_API_KEY",
+      "allowed_content": [
+        "title",
+        "url",
+        "source",
+        "published_at",
+        "language",
+        "entities",
+        "event_cluster_id"
+      ],
+      "store_policy": "metadata_and_excerpt_only_no_full_text_until_contract_review"
+    },
+    {
+      "id": "api-football",
+      "name": "API-Football / API-SPORTS",
+      "category": "match_data",
+      "trust_tier": "S1_structured_provider",
+      "access": "api",
+      "production_status": "candidate_backup_requires_subscription",
+      "base_url": "https://v3.football.api-sports.io",
+      "docs_url": "https://www.api-football.com/documentation-v3",
+      "credential_env": "API_FOOTBALL_KEY",
+      "allowed_content": [
+        "fixtures",
+        "results",
+        "events",
+        "lineups",
+        "standings",
+        "players",
+        "statistics"
+      ],
+      "store_policy": "contract_dependent_normalized_facts"
+    },
+    {
       "id": "transfermarkt",
       "name": "Transfermarkt",
       "category": "transfer_reference",

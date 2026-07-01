@@ -34,11 +34,19 @@ uvicorn services.report_api.main:app --reload
 .\scripts\run_deepseek.ps1
 ```
 
-脚本使用隐藏输入读取密钥，只写入当前服务进程的环境，服务退出后清理变量。密钥不会进入浏览器或 Git。
+脚本会先读取 Git 忽略的本地 `.env`。如果 `.env` 或进程环境中没有
+`DEEPSEEK_API_KEY`，才使用隐藏输入读取密钥。密钥只写入当前服务进程环境，服务退出后
+清理变量，不会进入浏览器或 Git。
+
+可用状态检查：
+
+- `/health`：服务是否启动，以及当前是 mock 还是 DeepSeek。
+- `/v1/product/status`：DeepSeek、Sportmonks、football-data、NewsAPI、YouTube
+  白名单和许可媒体开关是否已配置；只返回布尔值，不返回密钥。
 
 ## 当前边界
 
-- 当前 MCP 能力表已定义，但真实新闻和赛事 MCP 尚未连接。
-- V2 页面使用明确标识的演示 evidence 跑通闭环。
+- 当前 MCP 能力表已定义；Sportmonks、football-data 与许可媒体工具按密钥安全降级。
+- 页面使用批准来源和结构化 evidence 跑通闭环。
 - 运行历史暂存在当前进程内；生产版将使用 PostgreSQL/Temporal 检查点。
 - 服务不读取社媒凭据，也不提供自动发布工具。

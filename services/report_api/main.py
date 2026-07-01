@@ -120,11 +120,21 @@ def create_app(
         return {"status": "ok", "provider": settings.llm_provider}
 
     @app.get("/v1/product/status")
-    async def product_status() -> dict[str, bool | str]:
+    async def product_status() -> dict[str, bool | str | dict[str, bool]]:
         return {
             "generation_ready": settings.llm_provider == "deepseek",
             "mode": "live" if settings.llm_provider == "deepseek" else "demo",
             "source": "批准来源池（Guardian/BBC RSS + GDELT）",
+            "external_services": {
+                "sportmonks": settings.sportmonks_configured,
+                "football_data": settings.football_data_configured,
+                "news_api": settings.news_api_configured,
+                "youtube_key": bool(settings.youtube_api_key),
+                "youtube_channel_allowlist": bool(
+                    settings.youtube_official_channel_ids
+                ),
+                "licensed_media": settings.licensed_media_enabled,
+            },
         }
 
     @app.get("/v1/admin/catalog", response_model=AdminCatalog)

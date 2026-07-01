@@ -1,8 +1,48 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+DOTENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _default_dotenv_path() -> Path:
+    return Path(__file__).resolve().parents[2] / ".env"
+
+
+def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    key, value = stripped.split("=", 1)
+    key = key.removeprefix("export ").strip()
+    if not DOTENV_KEY_RE.fullmatch(key):
+        return None
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return key, value
+
+
+def load_local_dotenv(path: Path | None = None) -> tuple[str, ...]:
+    """Load a local gitignored .env file without overriding process secrets."""
+    dotenv_path = path or _default_dotenv_path()
+    if os.getenv("FOOTPULSE_LOAD_DOTENV", "true").lower() == "false":
+        return ()
+    if not dotenv_path.exists():
+        return ()
+    loaded: list[str] = []
+    for line in dotenv_path.read_text(encoding="utf-8-sig").splitlines():
+        parsed = _parse_dotenv_line(line)
+        if parsed is None:
+            continue
+        key, value = parsed
+        if key not in os.environ:
+            os.environ[key] = value
+            loaded.append(key)
+    return tuple(loaded)
 
 
 @dataclass(frozen=True)
@@ -22,12 +62,16 @@ class Settings:
     admin_token: str | None = None
     database_path: Path = Path("data/footpulse.db")
     max_concurrent_jobs: int = 2
+    sportmonks_configured: bool = False
+    football_data_configured: bool = False
+    news_api_configured: bool = False
     youtube_api_key: str | None = None
     youtube_official_channel_ids: tuple[str, ...] = ()
     licensed_media_enabled: bool = True
 
     @classmethod
-    def from_env(cls) -> Settings:
+    def from_env(cls, dotenv_path: Path | None = None) -> Settings:
+        load_local_dotenv(dotenv_path)
         settings = cls(
             llm_provider=os.getenv("LLM_PROVIDER", "mock").strip().lower(),
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY") or None,
@@ -48,6 +92,9 @@ class Settings:
                 os.getenv("FOOTPULSE_DATABASE_PATH", "data/footpulse.db")
             ),
             max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "2")),
+            sportmonks_configured=bool(os.getenv("SPORTMONKS_API_TOKEN")),
+            football_data_configured=bool(os.getenv("FOOTBALL_DATA_API_KEY")),
+            news_api_configured=bool(os.getenv("NEWS_API_KEY")),
             youtube_api_key=os.getenv("YOUTUBE_API_KEY") or None,
             youtube_official_channel_ids=tuple(
                 item.strip()

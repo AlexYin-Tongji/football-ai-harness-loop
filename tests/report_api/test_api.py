@@ -212,6 +212,14 @@ def test_product_status_hides_model_details() -> None:
         "generation_ready": False,
         "mode": "demo",
         "source": "批准来源池（Guardian/BBC RSS + GDELT）",
+        "external_services": {
+            "sportmonks": False,
+            "football_data": False,
+            "news_api": False,
+            "youtube_key": False,
+            "youtube_channel_allowlist": False,
+            "licensed_media": True,
+        },
     }
 
 

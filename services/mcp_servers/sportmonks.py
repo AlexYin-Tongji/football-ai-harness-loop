@@ -23,6 +23,13 @@ def _token() -> str:
     return value
 
 
+def _auth_headers() -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "Authorization": _token(),
+    }
+
+
 @mcp.tool()
 async def search_players(query: str, max_items: int = 5) -> dict:
     """Search player identities before requesting a profile."""
@@ -30,7 +37,7 @@ async def search_players(query: str, max_items: int = 5) -> dict:
         raise ValueError("query length must be between 2 and 120")
     payload = await get_json(
         f"https://api.sportmonks.com/v3/football/players/search/{quote(query)}",
-        params={"api_token": _token()},
+        headers=_auth_headers(),
     )
     return {
         "source_id": "sportmonks",
@@ -54,7 +61,8 @@ async def get_player_profile(player_id: int) -> dict:
         raise ValueError("player_id must be positive")
     payload = await get_json(
         f"https://api.sportmonks.com/v3/football/players/{player_id}",
-        params={"api_token": _token(), "include": "statistics"},
+        params={"include": "statistics"},
+        headers=_auth_headers(),
     )
     return {"source_id": "sportmonks", "player": payload.get("data")}
 
@@ -67,9 +75,9 @@ async def get_fixture_story(fixture_id: int) -> dict:
     payload = await get_json(
         f"https://api.sportmonks.com/v3/football/fixtures/{fixture_id}",
         params={
-            "api_token": _token(),
             "include": "participants;events;timeline;scores;lineups;statistics",
         },
+        headers=_auth_headers(),
     )
     return {"source_id": "sportmonks", "fixture": payload.get("data")}
 
