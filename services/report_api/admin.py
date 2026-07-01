@@ -55,6 +55,12 @@ def data_catalog(now: datetime) -> AdminCatalog:
                     retention="audit",
                     mutable_by=["evidence_reviewer"],
                 ),
+                DataEntity(
+                    name="media_assets",
+                    purpose="许可、署名、缩略图与官方视频外链",
+                    retention="operational",
+                    mutable_by=["media_reviewer"],
+                ),
             ],
             "football": [
                 DataEntity(
@@ -67,6 +73,12 @@ def data_catalog(now: datetime) -> AdminCatalog:
                     name="teams_players",
                     purpose="球队与球员主数据",
                     retention="operational",
+                    mutable_by=["data_steward"],
+                ),
+                DataEntity(
+                    name="match_events_player_stats",
+                    purpose="进球分钟、比分变化与球员结构化数据",
+                    retention="audit",
                     mutable_by=["data_steward"],
                 ),
             ],

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from secrets import compare_digest
@@ -44,6 +45,8 @@ from services.report_api.structured_match_data import (
     collect_structured_match_context,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def build_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "deepseek":
@@ -68,6 +71,9 @@ def create_app(
         flash_model=settings.deepseek_flash_model,
         max_output_tokens=settings.llm_max_output_tokens,
         max_attempts=settings.report_max_attempts,
+        youtube_api_key=settings.youtube_api_key,
+        youtube_channel_ids=settings.youtube_official_channel_ids,
+        media_enabled=settings.licensed_media_enabled,
     )
     skill_registry = default_skill_registry()
     run_memory = InMemoryRunMemory()
@@ -95,7 +101,8 @@ def create_app(
         )
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
+            "img-src 'self' data: https://upload.wikimedia.org "
+            "https://i.ytimg.com; connect-src 'self'; frame-ancestors 'none'"
         )
         if request.url.path.startswith("/v1/"):
             response.headers["Cache-Control"] = "no-store"
@@ -263,7 +270,8 @@ def create_app(
                 progress=100,
                 error="近期资料不足或来源暂时不可用，请调整主题后重试",
             )
-        except (ReportGenerationError, LLMProviderError):
+        except (ReportGenerationError, LLMProviderError) as exc:
+            logger.warning("research job %s stopped by quality gate: %s", job_id, exc)
             job_store.update(
                 job_id,
                 status="failed",
@@ -272,6 +280,7 @@ def create_app(
                 error="AI 研究未能通过质量校验，请稍后重试",
             )
         except Exception:
+            logger.exception("research job %s stopped by an internal error", job_id)
             job_store.update(
                 job_id,
                 status="failed",

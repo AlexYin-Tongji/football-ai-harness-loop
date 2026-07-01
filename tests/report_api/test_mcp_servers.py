@@ -12,6 +12,10 @@ def test_source_registry_exposes_approved_and_blocked_boundaries() -> None:
     assert by_id["bbc-football-rss"]["production_status"] == (
         "approved_development_noncommercial"
     )
+    assert by_id["wikimedia-commons-api"]["production_status"] == (
+        "approved_license_filtered"
+    )
+    assert by_id["youtube-data-api"]["credential_env"] == "YOUTUBE_API_KEY"
     assert by_id["transfermarkt"]["production_status"].startswith("blocked")
     assert by_id["transfermarkt"]["allowed_content"] == []
 

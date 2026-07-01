@@ -145,6 +145,83 @@ function predictionView(prediction) {
   return block;
 }
 
+function enrichmentView(enrichment) {
+  if (!enrichment) return null;
+  const hasContent =
+    enrichment.player_spotlights?.length ||
+    enrichment.match_timeline?.length ||
+    enrichment.media_assets?.length;
+  if (!hasContent) return null;
+  const block = el("section", "editorial-enrichment");
+
+  if (enrichment.player_spotlights?.length) {
+    block.append(el("h3", "", "人物与球队关联"));
+    const grid = el("div", "spotlight-grid");
+    enrichment.player_spotlights.forEach((item) => {
+      const card = el("article", "spotlight-card");
+      card.append(el("h4", "", item.name));
+      const meta = [item.position, ...(item.related_clubs || [])]
+        .filter(Boolean)
+        .join(" · ");
+      if (meta) card.append(el("small", "", meta));
+      card.append(el("p", "", item.narrative));
+      if (item.metrics?.length) {
+        const metrics = el("div", "spotlight-metrics");
+        item.metrics.forEach((metric) => {
+          metrics.append(el("span", "", `${metric.label} ${metric.value}`));
+        });
+        card.append(metrics);
+      }
+      grid.append(card);
+    });
+    block.append(grid);
+  }
+
+  if (enrichment.match_timeline?.length) {
+    block.append(el("h3", "", "比赛时间线"));
+    const timeline = el("ol", "match-timeline");
+    enrichment.match_timeline.forEach((item) => {
+      const row = el("li", "");
+      row.append(
+        el("strong", "", `${item.minute}'`),
+        el("p", "", item.description),
+      );
+      if (item.score_after) row.append(el("b", "", item.score_after));
+      timeline.append(row);
+    });
+    block.append(timeline);
+  }
+
+  if (enrichment.media_assets?.length) {
+    block.append(el("h3", "", "相关影像"));
+    const mediaGrid = el("div", "media-grid");
+    enrichment.media_assets.forEach((item) => {
+      const card = el("a", "media-card");
+      card.href = item.url;
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+      if (item.thumbnail_url) {
+        const image = document.createElement("img");
+        image.src = item.thumbnail_url;
+        image.alt = item.title;
+        image.loading = "lazy";
+        card.append(image);
+      }
+      card.append(
+        el("strong", "", item.title),
+        el("small", "", `${item.provider} · ${item.license}`),
+        el("span", "", item.attribution),
+      );
+      if (item.rights_status === "review_required") {
+        card.append(el("b", "media-review", "画面相关性待人工确认"));
+      }
+      mediaGrid.append(card);
+    });
+    block.append(mediaGrid);
+  }
+  return block;
+}
+
 function editableNode(tag, className, text, exportKind) {
   const node = el(tag, className, text);
   node.dataset.editable = "true";
@@ -192,6 +269,8 @@ function render(data) {
 
   const prediction = predictionView(report.prediction);
   if (prediction) ui.output.append(prediction);
+  const enrichment = enrichmentView(report.enrichment);
+  if (enrichment) ui.output.append(enrichment);
 
   report.sections.forEach((section, index) => {
     const wrapper = el("section", "report-section");

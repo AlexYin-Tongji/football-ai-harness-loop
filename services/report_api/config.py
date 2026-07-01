@@ -21,6 +21,9 @@ class Settings:
     admin_token: str | None = None
     database_path: Path = Path("data/footpulse.db")
     max_concurrent_jobs: int = 2
+    youtube_api_key: str | None = None
+    youtube_official_channel_ids: tuple[str, ...] = ()
+    licensed_media_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -41,6 +44,16 @@ class Settings:
                 os.getenv("FOOTPULSE_DATABASE_PATH", "data/footpulse.db")
             ),
             max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "2")),
+            youtube_api_key=os.getenv("YOUTUBE_API_KEY") or None,
+            youtube_official_channel_ids=tuple(
+                item.strip()
+                for item in os.getenv("YOUTUBE_OFFICIAL_CHANNEL_IDS", "").split(",")
+                if item.strip()
+            ),
+            licensed_media_enabled=os.getenv(
+                "LICENSED_MEDIA_ENABLED", "true"
+            ).lower()
+            == "true",
         )
         settings.validate()
         return settings

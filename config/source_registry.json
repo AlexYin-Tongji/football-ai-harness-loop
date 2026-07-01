@@ -77,7 +77,34 @@
       "docs_url": "https://docs.sportmonks.com/football",
       "credential_env": "SPORTMONKS_API_TOKEN",
       "allowed_content": ["fixtures", "lineups", "events", "squads", "statistics", "xG"],
+      "optional_content": ["player_profiles", "transfers", "transfer_rumours", "licensed_image_path"],
       "store_policy": "contract_dependent_normalized_facts"
+    },
+    {
+      "id": "wikimedia-commons-api",
+      "name": "Wikimedia Commons API",
+      "category": "licensed_media",
+      "trust_tier": "media_license_registry",
+      "access": "api",
+      "production_status": "approved_license_filtered",
+      "base_url": "https://commons.wikimedia.org/w/api.php",
+      "docs_url": "https://commons.wikimedia.org/wiki/Commons:API",
+      "credential_env": null,
+      "allowed_content": ["file_page", "thumbnail", "license", "artist", "credit"],
+      "store_policy": "metadata_thumbnail_and_attribution_only"
+    },
+    {
+      "id": "youtube-data-api",
+      "name": "YouTube Data API v3",
+      "category": "official_video_discovery",
+      "trust_tier": "platform_metadata",
+      "access": "api",
+      "production_status": "approved_with_key_and_channel_allowlist",
+      "base_url": "https://www.googleapis.com/youtube/v3",
+      "docs_url": "https://developers.google.com/youtube/v3/docs/search/list",
+      "credential_env": "YOUTUBE_API_KEY",
+      "allowed_content": ["video_id", "title", "thumbnail", "channel", "published_at", "embeddable_status"],
+      "store_policy": "metadata_and_external_link_only_no_video_download"
     },
     {
       "id": "newsapi",

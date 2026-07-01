@@ -156,6 +156,56 @@ class ExternalPrediction(BaseModel):
         return self
 
 
+class PlayerMetric(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    value: str = Field(min_length=1, max_length=80)
+
+
+class PlayerSpotlight(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    media_search_name: str | None = Field(default=None, max_length=120)
+    related_clubs: list[str] = Field(default_factory=list, max_length=4)
+    position: str | None = Field(default=None, max_length=80)
+    narrative: str = Field(min_length=1, max_length=1200)
+    metrics: list[PlayerMetric] = Field(default_factory=list, max_length=8)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class MatchTimelineEvent(BaseModel):
+    minute: str = Field(pattern=r"^(?:\d{1,3}(?:\+\d{1,2})?|赛前|半场|终场)$")
+    event_type: Literal[
+        "goal", "own_goal", "penalty", "card", "substitution", "key_moment"
+    ]
+    player: str | None = Field(default=None, max_length=120)
+    team: str | None = Field(default=None, max_length=120)
+    score_after: str | None = Field(
+        default=None, pattern=r"^\d{1,2}-\d{1,2}$"
+    )
+    description: str = Field(min_length=1, max_length=800)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class MediaAsset(BaseModel):
+    asset_type: Literal["image", "video"]
+    title: str = Field(min_length=1, max_length=300)
+    url: HttpUrl
+    thumbnail_url: HttpUrl | None = None
+    provider: str = Field(min_length=1, max_length=120)
+    license: str = Field(min_length=1, max_length=120)
+    attribution: str = Field(min_length=1, max_length=500)
+    rights_status: Literal["approved", "review_required"]
+
+
+class EditorialEnrichment(BaseModel):
+    player_spotlights: list[PlayerSpotlight] = Field(
+        default_factory=list, max_length=6
+    )
+    match_timeline: list[MatchTimelineEvent] = Field(
+        default_factory=list, max_length=20
+    )
+    media_assets: list[MediaAsset] = Field(default_factory=list, max_length=8)
+
+
 class StatisticalBaseline(BaseModel):
     method: Literal["poisson", "elo_poisson"]
     home_win: float = Field(ge=0, le=1)
@@ -190,6 +240,7 @@ class GeneratedReport(BaseModel):
     sections: list[ReportSection] = Field(min_length=1, max_length=12)
     warnings: list[str] = Field(default_factory=list, max_length=12)
     prediction: MatchPrediction | None = None
+    enrichment: EditorialEnrichment = Field(default_factory=EditorialEnrichment)
 
 
 class TokenUsage(BaseModel):

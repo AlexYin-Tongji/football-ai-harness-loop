@@ -17,6 +17,7 @@ from services.report_api.domain import (
     ReportType,
     TokenUsage,
 )
+from services.report_api.media import collect_report_media
 from services.report_api.prediction import (
     build_statistical_baseline,
     extract_external_predictions,
@@ -29,6 +30,7 @@ from services.report_api.prompts import (
 from services.report_api.providers.base import LLMProvider, LLMRequest, LLMResult
 from services.report_api.validation import (
     ReportValidationError,
+    normalize_generated_output,
     validate_generated_report,
 )
 
@@ -45,6 +47,9 @@ class ReportService:
         max_output_tokens: int,
         flash_model: str | None = None,
         max_attempts: int = 2,
+        youtube_api_key: str | None = None,
+        youtube_channel_ids: tuple[str, ...] = (),
+        media_enabled: bool = False,
     ) -> None:
         self._provider = provider
         self._model = model
@@ -52,6 +57,9 @@ class ReportService:
         self._flash_model = flash_model or model
         self._max_output_tokens = max_output_tokens
         self._max_attempts = max_attempts
+        self._youtube_api_key = youtube_api_key
+        self._youtube_channel_ids = youtube_channel_ids
+        self._media_enabled = media_enabled
 
     async def generate(
         self,
@@ -188,13 +196,14 @@ class ReportService:
                 },
             )
             last_result = await self._provider.generate_json(llm_request)
+            normalized_output = normalize_generated_output(last_result.output, request)
             try:
-                report = validate_generated_report(last_result.output, request)
+                report = validate_generated_report(normalized_output, request)
             except ReportValidationError as exc:
                 last_errors = exc.errors
                 if attempt < attempt_limit:
                     messages = append_revision_request(
-                        messages, last_result.output, exc.errors
+                        messages, normalized_output, exc.errors
                     )
                     continue
                 break
@@ -215,6 +224,15 @@ class ReportService:
                     *report.prediction.external_predictions,
                     *additions,
                 ][:6]
+
+            if self._media_enabled:
+                if progress_callback:
+                    progress_callback("licensed_media", 90)
+                report.enrichment.media_assets = await collect_report_media(
+                    report,
+                    youtube_api_key=self._youtube_api_key,
+                    youtube_channel_ids=list(self._youtube_channel_ids),
+                )
 
             return ReportResponse(
                 id=str(uuid4()),
@@ -249,12 +267,14 @@ class ReportService:
         )
         desks = {
             "match_news": (
-                "提取赛果、赛程、晋级影响、球队动态和今日观赛重点；"
-                "不得把新闻标题当作结构化赛果。"
+                "提取赛果、赛程、晋级影响、球队动态和今日观赛重点；若证据明确"
+                "写出进球者、分钟和比分变化，必须保留为时间线候选。不得把新闻"
+                "标题当作结构化赛果。"
             ),
             "transfer_market": (
                 "提取官宣、报价、谈判、接触、否认及绯闻。低可信线索可以保留，"
-                "但必须放入 rumor_items 并说明未核实。"
+                "但必须放入 rumor_items 并说明未核实。对重要球员同时保留位置、"
+                "当前球队、关联球队和证据明确提供的出场/进球/助攻等数据。"
             ),
         }
         brief_schema = json.dumps(DeskBrief.model_json_schema(), ensure_ascii=False)
@@ -317,6 +337,8 @@ class ReportService:
                                 "你是资深中文足球编辑。根据研究简报写一个栏目草稿，"
                                 f"只输出符合 JSON Schema 的对象：{draft_schema}。"
                                 "保留逐节 evidence_ids；传闻必须用‘传闻/未核实’措辞。"
+                                "不要只复述结果：用一两句解释人物背景、球队关联或比赛"
+                                "转折；事实与编辑判断必须分开。"
                             ),
                         },
                         {"role": "user", "content": brief.model_dump_json()},

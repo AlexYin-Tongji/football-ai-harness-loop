@@ -24,6 +24,20 @@
       "transport": "stdio",
       "read_only": true,
       "required_env": ["FOOTBALL_DATA_API_KEY"]
+    },
+    "sportmonks": {
+      "command": "python",
+      "args": ["-m", "services.mcp_servers.sportmonks"],
+      "transport": "stdio",
+      "read_only": true,
+      "required_env": ["SPORTMONKS_API_TOKEN"]
+    },
+    "media-assets": {
+      "command": "python",
+      "args": ["-m", "services.mcp_servers.media_assets"],
+      "transport": "stdio",
+      "read_only": true,
+      "optional_env": ["YOUTUBE_API_KEY", "YOUTUBE_OFFICIAL_CHANNEL_IDS"]
     }
   }
 }

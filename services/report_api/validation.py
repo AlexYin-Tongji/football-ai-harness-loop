@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import re
 
 from pydantic import ValidationError
@@ -16,6 +17,70 @@ class ReportValidationError(ValueError):
     def __init__(self, errors: list[str]) -> None:
         super().__init__("; ".join(errors))
         self.errors = errors
+
+
+def normalize_generated_output(
+    raw_output: dict[str, object], request: ReportRequest
+) -> dict[str, object]:
+    """Apply narrow, auditable repairs before the strict quality gate."""
+    normalized = copy.deepcopy(raw_output)
+    prediction = normalized.get("prediction")
+    if not isinstance(prediction, dict):
+        return normalized
+
+    externals = prediction.get("external_predictions")
+    if isinstance(externals, list):
+        evidence_by_id = {item.id: item for item in request.evidence}
+        for external in externals:
+            if not isinstance(external, dict):
+                continue
+            name = str(external.get("source_name") or "").strip()
+            evidence_ids = external.get("evidence_ids") or []
+            cited_text = " ".join(
+                (
+                    f"{evidence_by_id[item_id].source_name} "
+                    f"{evidence_by_id[item_id].title} "
+                    f"{evidence_by_id[item_id].summary}"
+                )
+                for item_id in evidence_ids
+                if item_id in evidence_by_id
+            )
+            for canonical in ("Opta", "Stats Perform"):
+                if canonical.casefold() in name.casefold() and canonical.casefold() in (
+                    cited_text.casefold()
+                ):
+                    external["source_name"] = canonical
+                    break
+
+    if request.match_stage == MatchStage.KNOCKOUT and not prediction.get(
+        "qualification"
+    ):
+        try:
+            home = float(prediction["home_win"])
+            draw = float(prediction["draw"])
+            away = float(prediction["away_win"])
+            total = home + draw + away
+        except (KeyError, TypeError, ValueError):
+            return normalized
+        if total > 0:
+            home_qualification = (home + draw / 2) / total
+            prediction["qualification"] = {
+                "home": round(home_qualification, 4),
+                "away": round(1 - home_qualification, 4),
+            }
+            warnings = normalized.setdefault("warnings", [])
+            if isinstance(warnings, list):
+                fallback_warning = (
+                    "模型遗漏淘汰赛晋级概率；系统以90分钟平局双方均分的保守规则补齐，"
+                    "未单独建模加时赛和点球。"
+                )
+                if len(warnings) < 12:
+                    warnings.append(fallback_warning)
+                elif warnings:
+                    warnings[-1] = fallback_warning
+    elif request.match_stage == MatchStage.GROUP:
+        prediction["qualification"] = None
+    return normalized
 
 
 def validate_generated_report(
@@ -58,6 +123,39 @@ def validate_generated_report(
                 f"section '{section.heading}' cites discovery leads "
                 "without a rumor label"
             )
+
+    for spotlight in report.enrichment.player_spotlights:
+        referenced_ids.update(spotlight.evidence_ids)
+        source_text = " ".join(
+            f"{item.title} {item.summary}"
+            for item in request.evidence
+            if item.id in spotlight.evidence_ids
+        )
+        for metric in spotlight.metrics:
+            if metric.value.casefold() not in source_text.casefold():
+                errors.append(
+                    f"player metric is not present in cited evidence: {metric.value}"
+                )
+
+    for event in report.enrichment.match_timeline:
+        referenced_ids.update(event.evidence_ids)
+        source_text = " ".join(
+            f"{item.title} {item.summary}"
+            for item in request.evidence
+            if item.id in event.evidence_ids
+        )
+        minute_number = event.minute.split("+", 1)[0]
+        if minute_number.isdigit() and not re.search(
+            rf"(?<!\d){re.escape(minute_number)}(?:st|nd|rd|th|\s*分钟|'|’)?",
+            source_text,
+            re.I,
+        ):
+            errors.append(
+                f"timeline minute is not present in cited evidence: {event.minute}"
+            )
+
+    if report.enrichment.media_assets:
+        errors.append("media_assets must be injected by the harness")
 
     if request.report_type == ReportType.MATCH_PREDICTION:
         if report.prediction is None:

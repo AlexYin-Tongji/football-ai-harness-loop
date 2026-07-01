@@ -157,3 +157,80 @@ def test_service_injects_only_sourced_external_prediction() -> None:
     assert len(external) == 1
     assert external[0].source_name == "Opta"
     assert "73.9%" in external[0].summary
+
+
+def test_service_normalizes_external_alias_and_missing_qualification() -> None:
+    request = request_payload()
+    request.evidence[0].summary = (
+        "Opta rates the home side's chance of victory in normal time at 73.9%."
+    )
+    output = report_output()
+    output["prediction"]["qualification"] = None
+    output["prediction"]["external_predictions"] = [
+        {
+            "source_name": "Opta (via The Guardian)",
+            "summary": "Opta gives the home side a 73.9% chance.",
+            "evidence_ids": ["ev-1"],
+        }
+    ]
+    provider = SequenceProvider([output])
+    service = ReportService(
+        provider=provider,
+        model="deepseek-v4-pro",
+        max_output_tokens=1000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(service.generate(request))
+
+    assert result.attempts == 1
+    assert result.report.prediction is not None
+    assert result.report.prediction.external_predictions[0].source_name == "Opta"
+    qualification = result.report.prediction.qualification
+    assert qualification is not None
+    assert abs(qualification.home + qualification.away - 1) < 0.001
+    assert any("系统以90分钟平局双方均分" in item for item in result.report.warnings)
+
+
+def test_service_accepts_evidence_backed_player_card_and_match_timeline() -> None:
+    request = request_payload()
+    request.evidence[0].summary = (
+        "Example Player scored his 12th goal in the 72nd minute to make it 2-1."
+    )
+    output = report_output()
+    output["enrichment"] = {
+        "player_spotlights": [
+            {
+                "name": "Example Player",
+                "related_clubs": ["Club A", "Club B"],
+                "position": "前锋",
+                "narrative": "他是这次转会与比赛叙事的核心人物。",
+                "metrics": [{"label": "进球", "value": "12"}],
+                "evidence_ids": ["ev-1"],
+            }
+        ],
+        "match_timeline": [
+            {
+                "minute": "72",
+                "event_type": "goal",
+                "player": "Example Player",
+                "team": "Club A",
+                "score_after": "2-1",
+                "description": "Example Player 打入改变比赛走势的一球。",
+                "evidence_ids": ["ev-1"],
+            }
+        ],
+        "media_assets": [],
+    }
+    provider = SequenceProvider([output])
+    service = ReportService(
+        provider=provider,
+        model="deepseek-v4-pro",
+        max_output_tokens=1000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(service.generate(request))
+
+    assert result.report.enrichment.player_spotlights[0].metrics[0].value == "12"
+    assert result.report.enrichment.match_timeline[0].minute == "72"
