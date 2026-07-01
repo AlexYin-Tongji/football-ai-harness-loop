@@ -42,7 +42,8 @@ uvicorn services.report_api.main:app --reload
 
 - `/health`：服务是否启动，以及当前是 mock 还是 DeepSeek。
 - `/v1/product/status`：DeepSeek、Sportmonks、football-data、NewsAPI、YouTube
-  白名单和许可媒体开关是否已配置；只返回布尔值，不返回密钥。
+  白名单和许可媒体开关是否已配置；同时返回 `model_status` 与最近一次模型错误的安全
+  提示。接口只返回状态，不返回密钥。
 
 ## 当前边界
 

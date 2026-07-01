@@ -2,8 +2,9 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
-from services.report_api.providers.base import LLMRequest
+from services.report_api.providers.base import LLMProviderError, LLMRequest
 from services.report_api.providers.deepseek import DeepSeekProvider
 
 
@@ -127,3 +128,37 @@ def test_deepseek_provider_recovers_from_remote_protocol_disconnect() -> None:
 
     assert calls == 3
     assert result.output == {"ok": True}
+
+
+def test_deepseek_provider_classifies_authentication_failure() -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(401, json={"error": {"message": "Authentication Fails"}})
+
+    provider = DeepSeekProvider(
+        api_key="bad-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+        max_attempts=3,
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        asyncio.run(
+            provider.generate_json(
+                LLMRequest(
+                    purpose="test",
+                    model="deepseek-v4-pro",
+                    messages=[{"role": "user", "content": "Return json."}],
+                    thinking_enabled=True,
+                    max_output_tokens=100,
+                )
+            )
+        )
+
+    assert calls == 1
+    assert exc_info.value.kind == "authentication"
+    assert exc_info.value.status_code == 401

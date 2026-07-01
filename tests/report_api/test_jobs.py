@@ -85,7 +85,7 @@ def test_async_research_job_reports_real_completion(
     settings = Settings(database_path=tmp_path / "api-jobs.db")
     app = create_app(settings, MockProvider())
 
-    async def scenario() -> dict:
+    async def scenario() -> tuple[dict, dict]:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -167,3 +167,66 @@ def test_async_job_reports_provider_disconnect_separately(
 
     assert payload["status"] == "failed"
     assert payload["error"] == "AI 服务连接中断，系统已自动重试；请再次生成"
+
+
+def test_async_job_reports_deepseek_authentication_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    async def fake_collect(_request, **_kwargs):
+        now = datetime.now(UTC)
+        return [
+            Evidence(
+                id=f"source-{index}",
+                title=f"Football update {index}",
+                url=f"https://example.com/update-{index}",
+                published_at=now,
+                source_name="Approved publisher",
+                summary="A current football update.",
+            )
+            for index in range(2)
+        ]
+
+    class UnauthorizedProvider:
+        async def generate_json(self, _request):
+            raise LLMProviderError(
+                "DeepSeek request was rejected (HTTP 401)",
+                kind="authentication",
+                status_code=401,
+            )
+
+    monkeypatch.setattr(
+        "services.report_api.main.collect_research_evidence", fake_collect
+    )
+    app = create_app(
+        Settings(database_path=tmp_path / "auth-failed-jobs.db"),
+        UnauthorizedProvider(),
+    )
+
+    async def scenario() -> dict:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            created = await client.post(
+                "/v1/research/jobs",
+                json={
+                    "report_type": "daily_football_digest",
+                    "subject": "今日球脉",
+                    "report_date": "2026-07-02",
+                },
+            )
+            job_id = created.json()["id"]
+            for _ in range(20):
+                payload = (await client.get(f"/v1/research/jobs/{job_id}")).json()
+                if payload["status"] in {"completed", "failed"}:
+                    status = (await client.get("/v1/product/status")).json()
+                    return payload, status
+                await asyncio.sleep(0.01)
+        raise AssertionError("job did not finish")
+
+    payload, status = asyncio.run(scenario())
+
+    assert payload["status"] == "failed"
+    assert payload["error"] == "AI 模型密钥或权限配置异常，请检查 DeepSeek API Key"
+    assert status["generation_ready"] is False
+    assert status["model_status"] == "needs_attention"
+    assert status["model_issue"] == "AI 模型密钥或权限配置异常，请检查 DeepSeek API Key"

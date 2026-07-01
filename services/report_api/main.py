@@ -61,6 +61,20 @@ def build_provider(settings: Settings) -> LLMProvider:
     return MockProvider()
 
 
+def public_provider_error_message(exc: LLMProviderError) -> str:
+    if exc.kind == "authentication":
+        return "AI 模型密钥或权限配置异常，请检查 DeepSeek API Key"
+    if exc.kind == "billing":
+        return "AI 模型账户余额不足，请检查 DeepSeek 账户余额"
+    if exc.kind == "rate_limit":
+        return "AI 服务请求过于频繁，系统已自动限流；请稍后重试"
+    if exc.kind == "bad_request":
+        return "AI 模型请求参数不被服务接受，请检查模型配置"
+    if exc.kind == "invalid_response":
+        return "AI 返回格式异常，系统已安全停止；请稍后重试"
+    return "AI 服务连接中断，系统已自动重试；请再次生成"
+
+
 def create_app(
     settings: Settings | None = None, provider: LLMProvider | None = None
 ) -> FastAPI:
@@ -82,6 +96,24 @@ def create_app(
     repository_root = Path(__file__).resolve().parents[2]
     web_root = repository_root / "apps" / "web"
     job_store = PersistentJobStore(repository_root / settings.database_path)
+    provider_health: dict[str, str | int | None] = {
+        "kind": None,
+        "status_code": None,
+        "message": None,
+    }
+
+    def record_provider_error(exc: LLMProviderError) -> None:
+        provider_health["kind"] = exc.kind
+        provider_health["status_code"] = exc.status_code
+        provider_health["message"] = public_provider_error_message(exc)
+
+    def current_model_status() -> str:
+        kind = provider_health["kind"]
+        if kind in {"authentication", "billing", "bad_request"}:
+            return "needs_attention"
+        if kind in {"rate_limit", "invalid_response", "transient"}:
+            return "degraded"
+        return "available" if settings.llm_provider == "deepseek" else "demo"
 
     app = FastAPI(
         title="Football AI Report API",
@@ -121,9 +153,13 @@ def create_app(
 
     @app.get("/v1/product/status")
     async def product_status() -> dict[str, bool | str | dict[str, bool]]:
+        model_status = current_model_status()
         return {
-            "generation_ready": settings.llm_provider == "deepseek",
+            "generation_ready": settings.llm_provider == "deepseek"
+            and model_status != "needs_attention",
             "mode": "live" if settings.llm_provider == "deepseek" else "demo",
+            "model_status": model_status,
+            "model_issue": provider_health["message"] or "",
             "source": "批准来源池（Guardian/BBC RSS + GDELT）",
             "external_services": {
                 "sportmonks": settings.sportmonks_configured,
@@ -156,7 +192,10 @@ def create_app(
         except ReportGenerationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except LLMProviderError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            record_provider_error(exc)
+            raise HTTPException(
+                status_code=502, detail=public_provider_error_message(exc)
+            ) from exc
 
     @app.post("/v1/runs", response_model=HarnessRunResponse)
     async def run_report(request: ReportRequest) -> HarnessRunResponse:
@@ -165,7 +204,10 @@ def create_app(
         except ReportGenerationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except LLMProviderError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            record_provider_error(exc)
+            raise HTTPException(
+                status_code=502, detail=public_provider_error_message(exc)
+            ) from exc
 
     @app.post("/v1/research/reports", response_model=HarnessRunResponse)
     async def research_report(
@@ -201,9 +243,10 @@ def create_app(
         except ReportGenerationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except LLMProviderError as exc:
+            record_provider_error(exc)
             raise HTTPException(
                 status_code=502,
-                detail="AI 服务暂时无法完成报告，请稍后重试",
+                detail=public_provider_error_message(exc),
             ) from exc
 
     async def execute_research_job_inner(
@@ -291,13 +334,20 @@ def create_app(
                 error="AI 研究未能通过质量校验，请稍后重试",
             )
         except LLMProviderError as exc:
-            logger.warning("research job %s lost its model connection: %s", job_id, exc)
+            record_provider_error(exc)
+            logger.warning(
+                "research job %s stopped by provider error kind=%s status=%s: %s",
+                job_id,
+                exc.kind,
+                exc.status_code,
+                exc,
+            )
             job_store.update(
                 job_id,
                 status="failed",
                 phase="failed",
                 progress=100,
-                error="AI 服务连接中断，系统已自动重试；请再次生成",
+                error=public_provider_error_message(exc),
             )
         except Exception:
             logger.exception("research job %s stopped by an internal error", job_id)

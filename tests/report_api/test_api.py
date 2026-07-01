@@ -211,6 +211,8 @@ def test_product_status_hides_model_details() -> None:
     assert response.json() == {
         "generation_ready": False,
         "mode": "demo",
+        "model_status": "demo",
+        "model_issue": "",
         "source": "批准来源池（Guardian/BBC RSS + GDELT）",
         "external_services": {
             "sportmonks": False,

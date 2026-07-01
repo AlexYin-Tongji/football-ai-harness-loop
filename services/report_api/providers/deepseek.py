@@ -10,6 +10,7 @@ from services.report_api.providers.base import (
     LLMProviderError,
     LLMRequest,
     LLMResult,
+    ProviderErrorKind,
 )
 
 
@@ -33,6 +34,17 @@ class DeepSeekProvider:
         self._request_slots = asyncio.Semaphore(
             max(1, min(max_concurrent_requests, 4))
         )
+
+    def _classify_status(self, status_code: int) -> ProviderErrorKind:
+        if status_code in {401, 403}:
+            return "authentication"
+        if status_code == 402:
+            return "billing"
+        if status_code == 429:
+            return "rate_limit"
+        if status_code in {400, 422}:
+            return "bad_request"
+        return "transient"
 
     async def generate_json(self, request: LLMRequest) -> LLMResult:
         async with self._request_slots:
@@ -74,26 +86,33 @@ class DeepSeekProvider:
                     break
                 except httpx.HTTPStatusError as exc:
                     last_error = exc
-                    retryable = exc.response.status_code in {408, 409, 429} or (
-                        exc.response.status_code >= 500
+                    status = exc.response.status_code
+                    request_id = exc.response.headers.get("x-request-id")
+                    kind = self._classify_status(status)
+                    retryable = kind in {"rate_limit", "transient"} and (
+                        status in {408, 409, 429} or status >= 500
                     )
                     if not retryable or attempt == self._max_attempts:
-                        status = exc.response.status_code
-                        request_id = exc.response.headers.get("x-request-id")
                         raise LLMProviderError(
                             "DeepSeek request was rejected "
-                            f"(HTTP {status}, request_id={request_id or 'unknown'})"
+                            f"(HTTP {status}, request_id={request_id or 'unknown'})",
+                            kind=kind,
+                            status_code=status,
+                            request_id=request_id,
                         ) from exc
                 except httpx.RequestError as exc:
                     last_error = exc
                     if attempt == self._max_attempts:
                         raise LLMProviderError(
-                            f"DeepSeek request failed: {exc.__class__.__name__}"
+                            f"DeepSeek request failed: {exc.__class__.__name__}",
+                            kind="transient",
                         ) from exc
             await asyncio.sleep(0.4 * attempt)
 
         if response is None:
-            raise LLMProviderError("DeepSeek request failed") from last_error
+            raise LLMProviderError(
+                "DeepSeek request failed", kind="transient"
+            ) from last_error
 
         try:
             data = response.json()
@@ -111,11 +130,14 @@ class DeepSeekProvider:
             json.JSONDecodeError,
         ) as exc:
             raise LLMProviderError(
-                "DeepSeek returned an invalid JSON response"
+                "DeepSeek returned an invalid JSON response",
+                kind="invalid_response",
             ) from exc
 
         if not isinstance(output, dict):
-            raise LLMProviderError("DeepSeek JSON root must be an object")
+            raise LLMProviderError(
+                "DeepSeek JSON root must be an object", kind="invalid_response"
+            )
 
         return LLMResult(
             output=output,
