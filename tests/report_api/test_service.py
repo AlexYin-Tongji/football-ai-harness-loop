@@ -24,6 +24,66 @@ class SequenceProvider:
         )
 
 
+class CapturingDailyProvider:
+    def __init__(self) -> None:
+        self.final_request: LLMRequest | None = None
+
+    async def generate_json(self, request: LLMRequest) -> LLMResult:
+        evidence_id = request.metadata["evidence_ids"][0]
+        if request.purpose.startswith("daily_research:"):
+            desk = request.metadata["desk"]
+            return LLMResult(
+                output={
+                    "desk": desk,
+                    "key_items": [
+                        {"claim": "分桌研究要点", "evidence_ids": [evidence_id]}
+                    ],
+                    "rumor_items": [],
+                    "conflicts": [],
+                    "unknowns": [],
+                },
+                provider="stub",
+                model=request.model,
+            )
+        if request.purpose.startswith("daily_desk_write:"):
+            desk = request.metadata["desk"]
+            return LLMResult(
+                output={
+                    "desk": desk,
+                    "heading": "赛场脉搏" if desk == "match_news" else "转会雷达",
+                    "summary": "分桌草稿摘要。",
+                    "sections": [
+                        {
+                            "heading": "分桌段落",
+                            "body": "分桌已经读过完整证据，这里保留可合稿的事实。",
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "warnings": [],
+                },
+                provider="stub",
+                model=request.model,
+            )
+        self.final_request = request
+        return LLMResult(
+            output={
+                "title": "今日球脉",
+                "executive_summary": "总编辑基于分桌草稿生成的摘要。",
+                "sections": [
+                    {
+                        "heading": "赛场脉搏",
+                        "body": "总编辑保留栏目边界并引用来源。",
+                        "evidence_ids": [evidence_id],
+                    }
+                ],
+                "warnings": [],
+                "prediction": None,
+            },
+            provider="stub",
+            model=request.model,
+        )
+
+
 def request_payload() -> ReportRequest:
     return ReportRequest.model_validate(
         {
@@ -41,6 +101,30 @@ def request_payload() -> ReportRequest:
                     "source_name": "Official source",
                     "summary": "Match context for testing.",
                 }
+            ],
+        }
+    )
+
+
+def daily_digest_request_with_long_evidence() -> ReportRequest:
+    return ReportRequest.model_validate(
+        {
+            "report_type": "daily_football_digest",
+            "subject": "今日球脉",
+            "report_date": "2026-07-01",
+            "data_cutoff": "2026-07-01T08:00:00Z",
+            "length": "deep",
+            "focus": ["世界杯", "转会"],
+            "evidence": [
+                {
+                    "id": f"ev-{index}",
+                    "title": f"Football update {index}",
+                    "url": f"https://example.com/update-{index}",
+                    "published_at": "2026-07-01T07:00:00Z",
+                    "source_name": "Approved source",
+                    "summary": "Long evidence summary. " * 160,
+                }
+                for index in range(1, 25)
             ],
         }
     )
@@ -234,3 +318,69 @@ def test_service_accepts_evidence_backed_player_card_and_match_timeline() -> Non
 
     assert result.report.enrichment.player_spotlights[0].metrics[0].value == "12"
     assert result.report.enrichment.match_timeline[0].minute == "72"
+
+
+def test_service_prunes_unsupported_optional_enrichment() -> None:
+    request = request_payload()
+    request.evidence[0].summary = "Example Player completed a transfer."
+    output = report_output()
+    output["enrichment"] = {
+        "player_spotlights": [
+            {
+                "name": "Example Player",
+                "related_clubs": ["Club A"],
+                "position": "前锋",
+                "narrative": "他是这次转会叙事的核心人物。",
+                "metrics": [{"label": "进球", "value": "99"}],
+                "evidence_ids": ["ev-1"],
+            }
+        ],
+        "match_timeline": [
+            {
+                "minute": "72",
+                "event_type": "goal",
+                "player": "Example Player",
+                "team": "Club A",
+                "score_after": "2-1",
+                "description": "Example Player 打入一球。",
+                "evidence_ids": ["ev-1"],
+            }
+        ],
+        "media_assets": [],
+    }
+    provider = SequenceProvider([output])
+    service = ReportService(
+        provider=provider,
+        model="deepseek-v4-pro",
+        max_output_tokens=1000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(service.generate(request))
+
+    assert result.report.enrichment.player_spotlights[0].metrics == []
+    assert result.report.enrichment.match_timeline == []
+    assert any("人物卡数据" in item for item in result.report.warnings)
+    assert any("比赛时间线" in item for item in result.report.warnings)
+
+
+def test_daily_digest_final_editor_uses_compacted_evidence() -> None:
+    provider = CapturingDailyProvider()
+    service = ReportService(
+        provider=provider,
+        model="deepseek-v4-pro",
+        flash_model="deepseek-v4-flash",
+        max_output_tokens=6000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(service.generate(daily_digest_request_with_long_evidence()))
+
+    assert result.report.title == "今日球脉"
+    assert provider.final_request is not None
+    final_text = "\n".join(
+        message["content"] for message in provider.final_request.messages
+    )
+    assert "ev-24" in final_text
+    assert len(final_text) < 45_000
+    assert provider.final_request.max_output_tokens == 4500

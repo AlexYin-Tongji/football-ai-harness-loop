@@ -24,13 +24,14 @@ def normalize_generated_output(
 ) -> dict[str, object]:
     """Apply narrow, auditable repairs before the strict quality gate."""
     normalized = copy.deepcopy(raw_output)
+    evidence_by_id = {item.id: item for item in request.evidence}
+    _prune_unsupported_enrichment(normalized, evidence_by_id)
     prediction = normalized.get("prediction")
     if not isinstance(prediction, dict):
         return normalized
 
     externals = prediction.get("external_predictions")
     if isinstance(externals, list):
-        evidence_by_id = {item.id: item for item in request.evidence}
         for external in externals:
             if not isinstance(external, dict):
                 continue
@@ -81,6 +82,92 @@ def normalize_generated_output(
     elif request.match_stage == MatchStage.GROUP:
         prediction["qualification"] = None
     return normalized
+
+
+def _source_text(
+    evidence_ids: object, evidence_by_id: dict[str, object]
+) -> str:
+    if not isinstance(evidence_ids, list):
+        return ""
+    return " ".join(
+        f"{item.title} {item.summary}"
+        for item_id in evidence_ids
+        if isinstance(item_id, str)
+        for item in [evidence_by_id.get(item_id)]
+        if item is not None
+    )
+
+
+def _add_warning(normalized: dict[str, object], warning: str) -> None:
+    warnings = normalized.setdefault("warnings", [])
+    if not isinstance(warnings, list):
+        normalized["warnings"] = [warning]
+        return
+    if warning in warnings:
+        return
+    if len(warnings) < 12:
+        warnings.append(warning)
+    elif warnings:
+        warnings[-1] = warning
+
+
+def _prune_unsupported_enrichment(
+    normalized: dict[str, object], evidence_by_id: dict[str, object]
+) -> None:
+    enrichment = normalized.get("enrichment")
+    if not isinstance(enrichment, dict):
+        return
+
+    pruned_metrics = 0
+    spotlights = enrichment.get("player_spotlights")
+    if isinstance(spotlights, list):
+        for spotlight in spotlights:
+            if not isinstance(spotlight, dict):
+                continue
+            metrics = spotlight.get("metrics")
+            if not isinstance(metrics, list):
+                continue
+            source_text = _source_text(spotlight.get("evidence_ids"), evidence_by_id)
+            kept_metrics = []
+            for metric in metrics:
+                if not isinstance(metric, dict):
+                    continue
+                value = str(metric.get("value") or "")
+                if value and value.casefold() in source_text.casefold():
+                    kept_metrics.append(metric)
+                else:
+                    pruned_metrics += 1
+            spotlight["metrics"] = kept_metrics
+    if pruned_metrics:
+        _add_warning(
+            normalized,
+            "部分人物卡数据未能在引用资料中定位，系统已移除这些可选指标。",
+        )
+
+    pruned_events = 0
+    events = enrichment.get("match_timeline")
+    if isinstance(events, list):
+        kept_events = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            minute = str(event.get("minute") or "")
+            minute_number = minute.split("+", 1)[0]
+            source_text = _source_text(event.get("evidence_ids"), evidence_by_id)
+            if not minute_number.isdigit() or re.search(
+                rf"(?<!\d){re.escape(minute_number)}(?:st|nd|rd|th|\s*分钟|'|’)?",
+                source_text,
+                re.I,
+            ):
+                kept_events.append(event)
+            else:
+                pruned_events += 1
+        enrichment["match_timeline"] = kept_events
+    if pruned_events:
+        _add_warning(
+            normalized,
+            "部分比赛时间线分钟未能在引用资料中定位，系统已移除这些可选事件。",
+        )
 
 
 def validate_generated_report(

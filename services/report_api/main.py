@@ -46,6 +46,8 @@ from services.report_api.structured_match_data import (
 )
 
 logger = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def build_provider(settings: Settings) -> LLMProvider:
@@ -68,10 +70,14 @@ def public_provider_error_message(exc: LLMProviderError) -> str:
         return "AI 模型账户余额不足，请检查 DeepSeek 账户余额"
     if exc.kind == "rate_limit":
         return "AI 服务请求过于频繁，系统已自动限流；请稍后重试"
+    if exc.kind == "context_overflow":
+        return "AI 上下文过大，系统已安全停止；请改用标准版或稍后重试"
     if exc.kind == "bad_request":
         return "AI 模型请求参数不被服务接受，请检查模型配置"
     if exc.kind == "invalid_response":
         return "AI 返回格式异常，系统已安全停止；请稍后重试"
+    if exc.kind == "timeout":
+        return "AI 服务响应超时，系统已自动重试；请再次生成"
     return "AI 服务连接中断，系统已自动重试；请再次生成"
 
 
@@ -109,9 +115,9 @@ def create_app(
 
     def current_model_status() -> str:
         kind = provider_health["kind"]
-        if kind in {"authentication", "billing", "bad_request"}:
+        if kind in {"authentication", "billing", "bad_request", "context_overflow"}:
             return "needs_attention"
-        if kind in {"rate_limit", "invalid_response", "transient"}:
+        if kind in {"rate_limit", "invalid_response", "timeout", "transient"}:
             return "degraded"
         return "available" if settings.llm_provider == "deepseek" else "demo"
 

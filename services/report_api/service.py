@@ -34,9 +34,47 @@ from services.report_api.validation import (
     validate_generated_report,
 )
 
+FINAL_EVIDENCE_SUMMARY_CHARS = 420
+
 
 class ReportGenerationError(RuntimeError):
     """Raised after the bounded generation loop cannot produce a valid report."""
+
+
+def _shorten(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: limit - 1].rstrip() + "…"
+
+
+def _compact_request_for_final_editor(request: ReportRequest) -> ReportRequest:
+    """Keep citation targets but avoid repeating full evidence in the final pass."""
+    compact_evidence = [
+        item.model_copy(
+            update={
+                "title": _shorten(item.title, 220),
+                "summary": _shorten(item.summary, FINAL_EVIDENCE_SUMMARY_CHARS),
+            }
+        )
+        for item in request.evidence
+    ]
+    return request.model_copy(update={"evidence": compact_evidence})
+
+
+def _final_output_budget(request: ReportRequest, configured_limit: int) -> int:
+    if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:
+        return min(
+            configured_limit,
+            {"concise": 2400, "standard": 3600, "deep": 4500}[
+                request.length.value
+            ],
+        )
+    if request.report_type == ReportType.MATCH_PREDICTION:
+        return min(configured_limit, 4500)
+    return min(
+        configured_limit,
+        {"concise": 1800, "standard": 3500, "deep": 6000}[request.length.value],
+    )
 
 
 class ReportService:
@@ -92,6 +130,9 @@ class ReportService:
             desk_drafts, council_results = await self._run_daily_desks(request)
             if progress_callback:
                 progress_callback("desk_drafts_ready", 75)
+            messages = build_messages(
+                _compact_request_for_final_editor(request), skill_instructions
+            )
             if desk_drafts:
                 messages.append(
                     {
@@ -99,7 +140,9 @@ class ReportService:
                         "content": (
                             "以下是赛事桌与转会桌分别完成的草稿。你是总编辑：去重、"
                             "保留两个栏目边界并整合为一份《今日球脉》。传闻必须保留"
-                            "明确的未核实标签，不能因进入草稿而升级可信度。\n"
+                            "明确的未核实标签，不能因进入草稿而升级可信度。"
+                            "你已经收到压缩证据索引；事实细节优先来自草稿，"
+                            "引用只能使用索引中存在的 evidence_id。\n"
                             + "\n".join(
                                 item.model_dump_json() for item in desk_drafts
                             )
@@ -172,19 +215,8 @@ class ReportService:
                     ReportType.MATCH_PREDICTION,
                     ReportType.DAILY_FOOTBALL_DIGEST,
                 },
-                max_output_tokens=min(
-                    self._max_output_tokens,
-                    (
-                        5000
-                        if request.report_type
-                        in {
-                            ReportType.MATCH_PREDICTION,
-                            ReportType.DAILY_FOOTBALL_DIGEST,
-                        }
-                        else {"concise": 1800, "standard": 3500, "deep": 6000}[
-                            request.length.value
-                        ]
-                    ),
+                max_output_tokens=_final_output_budget(
+                    request, self._max_output_tokens
                 ),
                 metadata={
                     "report_type": request.report_type.value,

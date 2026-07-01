@@ -8,7 +8,9 @@ ProviderErrorKind = Literal[
     "billing",
     "rate_limit",
     "bad_request",
+    "context_overflow",
     "invalid_response",
+    "timeout",
     "transient",
 ]
 

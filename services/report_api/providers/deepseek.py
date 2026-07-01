@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 from typing import Any
 
 import httpx
@@ -12,6 +14,8 @@ from services.report_api.providers.base import (
     LLMResult,
     ProviderErrorKind,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DeepSeekProvider:
@@ -35,16 +39,36 @@ class DeepSeekProvider:
             max(1, min(max_concurrent_requests, 4))
         )
 
-    def _classify_status(self, status_code: int) -> ProviderErrorKind:
+    def _classify_status(
+        self, status_code: int, response_text: str = ""
+    ) -> ProviderErrorKind:
         if status_code in {401, 403}:
             return "authentication"
         if status_code == 402:
             return "billing"
         if status_code == 429:
             return "rate_limit"
+        normalized = response_text.casefold()
+        if status_code in {400, 422} and any(
+            marker in normalized
+            for marker in ("context", "token", "maximum length", "max length")
+        ):
+            return "context_overflow"
         if status_code in {400, 422}:
             return "bad_request"
         return "transient"
+
+    def _timeout_for(self, request: LLMRequest) -> float:
+        if request.thinking_enabled and request.purpose in {
+            "daily_football_digest",
+            "match_prediction",
+        }:
+            return max(self._timeout, 240.0)
+        return self._timeout
+
+    @staticmethod
+    def _message_chars(request: LLMRequest) -> int:
+        return sum(len(message.get("content", "")) for message in request.messages)
 
     async def generate_json(self, request: LLMRequest) -> LLMResult:
         async with self._request_slots:
@@ -63,16 +87,19 @@ class DeepSeekProvider:
 
         response: httpx.Response | None = None
         last_error: Exception | None = None
+        request_timeout = self._timeout_for(request)
+        input_chars = self._message_chars(request)
         for attempt in range(1, self._max_attempts + 1):
             # A fresh connection per attempt avoids reusing a socket that the
             # upstream closed while returning a long reasoning response.
             limits = httpx.Limits(max_connections=1, max_keepalive_connections=0)
             async with httpx.AsyncClient(
-                timeout=self._timeout,
+                timeout=request_timeout,
                 transport=self._transport,
                 limits=limits,
             ) as client:
                 try:
+                    started = time.perf_counter()
                     response = await client.post(
                         f"{self._base_url}/chat/completions",
                         headers={
@@ -82,13 +109,27 @@ class DeepSeekProvider:
                         },
                         json=payload,
                     )
+                    duration_ms = int((time.perf_counter() - started) * 1000)
+                    logger.info(
+                        "deepseek call completed purpose=%s model=%s attempt=%s "
+                        "status=%s input_chars=%s max_tokens=%s timeout_s=%s "
+                        "duration_ms=%s",
+                        request.purpose,
+                        request.model,
+                        attempt,
+                        response.status_code,
+                        input_chars,
+                        request.max_output_tokens,
+                        request_timeout,
+                        duration_ms,
+                    )
                     response.raise_for_status()
                     break
                 except httpx.HTTPStatusError as exc:
                     last_error = exc
                     status = exc.response.status_code
                     request_id = exc.response.headers.get("x-request-id")
-                    kind = self._classify_status(status)
+                    kind = self._classify_status(status, exc.response.text[:1000])
                     retryable = kind in {"rate_limit", "transient"} and (
                         status in {408, 409, 429} or status >= 500
                     )
@@ -99,6 +140,13 @@ class DeepSeekProvider:
                             kind=kind,
                             status_code=status,
                             request_id=request_id,
+                        ) from exc
+                except httpx.TimeoutException as exc:
+                    last_error = exc
+                    if attempt == self._max_attempts:
+                        raise LLMProviderError(
+                            f"DeepSeek request timed out: {exc.__class__.__name__}",
+                            kind="timeout",
                         ) from exc
                 except httpx.RequestError as exc:
                     last_error = exc
