@@ -22,15 +22,23 @@ class DeepSeekProvider:
         base_url: str,
         timeout_seconds: float,
         transport: httpx.AsyncBaseTransport | None = None,
-        max_attempts: int = 2,
+        max_attempts: int = 3,
+        max_concurrent_requests: int = 2,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._transport = transport
         self._max_attempts = max(1, min(max_attempts, 3))
+        self._request_slots = asyncio.Semaphore(
+            max(1, min(max_concurrent_requests, 4))
+        )
 
     async def generate_json(self, request: LLMRequest) -> LLMResult:
+        async with self._request_slots:
+            return await self._generate_json(request)
+
+    async def _generate_json(self, request: LLMRequest) -> LLMResult:
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": request.messages,
@@ -43,16 +51,22 @@ class DeepSeekProvider:
 
         response: httpx.Response | None = None
         last_error: Exception | None = None
-        async with httpx.AsyncClient(
-            timeout=self._timeout, transport=self._transport
-        ) as client:
-            for attempt in range(1, self._max_attempts + 1):
+        for attempt in range(1, self._max_attempts + 1):
+            # A fresh connection per attempt avoids reusing a socket that the
+            # upstream closed while returning a long reasoning response.
+            limits = httpx.Limits(max_connections=1, max_keepalive_connections=0)
+            async with httpx.AsyncClient(
+                timeout=self._timeout,
+                transport=self._transport,
+                limits=limits,
+            ) as client:
                 try:
                     response = await client.post(
                         f"{self._base_url}/chat/completions",
                         headers={
                             "Authorization": f"Bearer {self._api_key}",
                             "Content-Type": "application/json",
+                            "Connection": "close",
                         },
                         json=payload,
                     )
@@ -76,7 +90,7 @@ class DeepSeekProvider:
                         raise LLMProviderError(
                             f"DeepSeek request failed: {exc.__class__.__name__}"
                         ) from exc
-                await asyncio.sleep(0.4 * attempt)
+            await asyncio.sleep(0.4 * attempt)
 
         if response is None:
             raise LLMProviderError("DeepSeek request failed") from last_error

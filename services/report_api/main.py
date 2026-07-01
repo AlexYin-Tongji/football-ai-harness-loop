@@ -55,7 +55,8 @@ def build_provider(settings: Settings) -> LLMProvider:
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
-            max_attempts=2,
+            max_attempts=3,
+            max_concurrent_requests=settings.deepseek_max_concurrency,
         )
     return MockProvider()
 
@@ -270,7 +271,7 @@ def create_app(
                 progress=100,
                 error="近期资料不足或来源暂时不可用，请调整主题后重试",
             )
-        except (ReportGenerationError, LLMProviderError) as exc:
+        except ReportGenerationError as exc:
             logger.warning("research job %s stopped by quality gate: %s", job_id, exc)
             job_store.update(
                 job_id,
@@ -278,6 +279,15 @@ def create_app(
                 phase="failed",
                 progress=100,
                 error="AI 研究未能通过质量校验，请稍后重试",
+            )
+        except LLMProviderError as exc:
+            logger.warning("research job %s lost its model connection: %s", job_id, exc)
+            job_store.update(
+                job_id,
+                status="failed",
+                phase="failed",
+                progress=100,
+                error="AI 服务连接中断，系统已自动重试；请再次生成",
             )
         except Exception:
             logger.exception("research job %s stopped by an internal error", job_id)

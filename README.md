@@ -32,6 +32,7 @@ V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AG
 - [API-first 报告决策](docs/adr/0002-api-first-report-workbench.md)
 - [预测模型设计](docs/ml/MATCH_PREDICTION.md)
 - [数据源与内容合规](docs/data/SOURCE_POLICY.md)
+- [外部服务配置清单](docs/admin/EXTERNAL_SERVICE_SETUP.md)
 - [世界杯冲刺路线图](docs/product/ROADMAP.md)
 - [V4 严格产品评审与竞品差距](docs/product/V4_PRODUCT_REVIEW.md)
 - [研发协作规范](CONTRIBUTING.md)

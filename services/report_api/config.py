@@ -14,7 +14,8 @@ class Settings:
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_flash_model: str = "deepseek-v4-flash"
     deepseek_pro_model: str = "deepseek-v4-pro"
-    llm_timeout_seconds: float = 90.0
+    deepseek_max_concurrency: int = 2
+    llm_timeout_seconds: float = 120.0
     llm_max_output_tokens: int = 6000
     report_max_attempts: int = 2
     admin_enabled: bool = False
@@ -35,7 +36,10 @@ class Settings:
             ).rstrip("/"),
             deepseek_flash_model=os.getenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash"),
             deepseek_pro_model=os.getenv("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro"),
-            llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "90")),
+            deepseek_max_concurrency=int(
+                os.getenv("DEEPSEEK_MAX_CONCURRENCY", "2")
+            ),
+            llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "120")),
             llm_max_output_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "6000")),
             report_max_attempts=int(os.getenv("REPORT_MAX_ATTEMPTS", "2")),
             admin_enabled=os.getenv("ADMIN_ENABLED", "false").lower() == "true",
@@ -67,6 +71,8 @@ class Settings:
             raise ValueError("LLM_TIMEOUT_SECONDS must be positive")
         if self.llm_max_output_tokens <= 0:
             raise ValueError("LLM_MAX_OUTPUT_TOKENS must be positive")
+        if not 1 <= self.deepseek_max_concurrency <= 4:
+            raise ValueError("DEEPSEEK_MAX_CONCURRENCY must be between 1 and 4")
         if not 1 <= self.report_max_attempts <= 3:
             raise ValueError("REPORT_MAX_ATTEMPTS must be between 1 and 3")
         if self.admin_enabled and not self.admin_token:

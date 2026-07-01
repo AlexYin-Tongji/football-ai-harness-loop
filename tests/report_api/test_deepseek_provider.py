@@ -88,3 +88,42 @@ def test_deepseek_provider_retries_transient_upstream_error() -> None:
 
     assert calls == 2
     assert result.output == {"ok": True}
+
+
+def test_deepseek_provider_recovers_from_remote_protocol_disconnect() -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise httpx.RemoteProtocolError("upstream disconnected")
+        return httpx.Response(
+            200,
+            json={
+                "model": "deepseek-v4-pro",
+                "choices": [{"message": {"content": '{"ok":true}'}}],
+            },
+        )
+
+    provider = DeepSeekProvider(
+        api_key="test-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+        max_attempts=3,
+    )
+    result = asyncio.run(
+        provider.generate_json(
+            LLMRequest(
+                purpose="test",
+                model="deepseek-v4-pro",
+                messages=[{"role": "user", "content": "Return json."}],
+                thinking_enabled=True,
+                max_output_tokens=100,
+            )
+        )
+    )
+
+    assert calls == 3
+    assert result.output == {"ok": True}

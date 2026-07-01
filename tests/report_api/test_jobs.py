@@ -10,6 +10,7 @@ from services.report_api.config import Settings
 from services.report_api.domain import ConsumerReportRequest, Evidence
 from services.report_api.jobs import PersistentJobStore
 from services.report_api.main import create_app
+from services.report_api.providers.base import LLMProviderError
 from services.report_api.providers.mock import MockProvider
 
 
@@ -111,3 +112,58 @@ def test_async_research_job_reports_real_completion(
     assert payload["status"] == "completed"
     assert payload["progress"] == 100
     assert payload["result"]["run"]["skill_id"] == "daily-football-digest"
+
+
+def test_async_job_reports_provider_disconnect_separately(
+    tmp_path: Path, monkeypatch
+) -> None:
+    async def fake_collect(_request, **_kwargs):
+        now = datetime.now(UTC)
+        return [
+            Evidence(
+                id=f"source-{index}",
+                title=f"Football update {index}",
+                url=f"https://example.com/update-{index}",
+                published_at=now,
+                source_name="Approved publisher",
+                summary="A current football update.",
+            )
+            for index in range(2)
+        ]
+
+    class DisconnectedProvider:
+        async def generate_json(self, _request):
+            raise LLMProviderError("DeepSeek request failed: RemoteProtocolError")
+
+    monkeypatch.setattr(
+        "services.report_api.main.collect_research_evidence", fake_collect
+    )
+    app = create_app(
+        Settings(database_path=tmp_path / "failed-jobs.db"),
+        DisconnectedProvider(),
+    )
+
+    async def scenario() -> dict:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            created = await client.post(
+                "/v1/research/jobs",
+                json={
+                    "report_type": "daily_football_digest",
+                    "subject": "今日球脉",
+                    "report_date": "2026-07-01",
+                },
+            )
+            job_id = created.json()["id"]
+            for _ in range(20):
+                payload = (await client.get(f"/v1/research/jobs/{job_id}")).json()
+                if payload["status"] in {"completed", "failed"}:
+                    return payload
+                await asyncio.sleep(0.01)
+        raise AssertionError("job did not finish")
+
+    payload = asyncio.run(scenario())
+
+    assert payload["status"] == "failed"
+    assert payload["error"] == "AI 服务连接中断，系统已自动重试；请再次生成"
