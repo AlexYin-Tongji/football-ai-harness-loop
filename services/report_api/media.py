@@ -17,6 +17,7 @@ APPROVED_COMMONS_LICENSES = (
     "CC0",
     "Public domain",
 )
+NAME_STOP_WORDS = {"jr", "sr", "ii", "iii", "iv", "de", "da", "dos", "van", "von"}
 
 
 def _plain(value: str | None, limit: int = 500) -> str:
@@ -28,10 +29,46 @@ def _fold(value: str) -> str:
     return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
+def _name_tokens(name: str) -> list[str]:
+    return [
+        token
+        for token in re.findall(r"[a-z0-9'-]{2,}", _fold(name))
+        if token not in NAME_STOP_WORDS
+    ]
+
+
+def _metadata_text(title: str, metadata: dict[str, Any]) -> str:
+    fields = [title]
+    for key in (
+        "ObjectName",
+        "ImageDescription",
+        "Categories",
+        "DepictedPeople",
+        "Credit",
+    ):
+        value = (metadata.get(key) or {}).get("value")
+        if value:
+            fields.append(_plain(str(value), 1200))
+    return _fold(" ".join(fields))
+
+
+def _metadata_matches_name(name: str, title: str, metadata: dict[str, Any]) -> bool:
+    tokens = _name_tokens(name)
+    if not tokens:
+        return False
+    text = _metadata_text(title, metadata)
+    full_name = " ".join(tokens)
+    if full_name in text:
+        return True
+    if len(tokens) >= 2 and all(token in text for token in tokens[:2]):
+        return True
+    return len(tokens) >= 3 and sum(token in text for token in tokens) >= 3
+
+
 async def search_commons_player_image(
     name: str, transport: httpx.AsyncBaseTransport | None = None
 ) -> MediaAsset | None:
-    """Return one license-filtered Commons image whose title matches the player."""
+    """Return one license-filtered Commons image with metadata name relevance."""
     timeout = httpx.Timeout(15.0, connect=5.0)
     async with httpx.AsyncClient(
         timeout=timeout, follow_redirects=False, transport=transport
@@ -63,10 +100,13 @@ async def search_commons_player_image(
     surname = re.findall(r"[\w'-]+", _fold(name))[-1:]
     for page in payload.get("query", {}).get("pages", []):
         title = str(page.get("title") or "")
-        if surname and surname[0] not in _fold(title):
-            continue
         info = (page.get("imageinfo") or [{}])[0]
         metadata: dict[str, Any] = info.get("extmetadata") or {}
+        if not _metadata_matches_name(name, title, metadata):
+            if surname and surname[0] not in _metadata_text(title, metadata):
+                continue
+            # A surname-only hit is too risky to attach automatically.
+            continue
         license_name = _plain(
             (metadata.get("LicenseShortName") or {}).get("value"), 120
         )
@@ -88,6 +128,11 @@ async def search_commons_player_image(
             license=license_name,
             attribution=attribution or "见 Wikimedia Commons 文件页",
             rights_status="review_required",
+            relevance_status="metadata_match",
+            relevance_reason=(
+                "Commons 标题或元数据匹配目标姓名；尚未做视觉身份识别，"
+                "发布前仍需人工确认。"
+            ),
         )
     return None
 
@@ -100,8 +145,8 @@ async def search_official_youtube_video(
 ) -> MediaAsset | None:
     """Search only manually allowlisted official channels for embeddable videos."""
     timeout = httpx.Timeout(15.0, connect=5.0)
-    published_after = (datetime.now(UTC) - timedelta(days=14)).isoformat().replace(
-        "+00:00", "Z"
+    published_after = (
+        (datetime.now(UTC) - timedelta(days=14)).isoformat().replace("+00:00", "Z")
     )
     async with httpx.AsyncClient(
         timeout=timeout, follow_redirects=False, transport=transport
@@ -144,8 +189,39 @@ async def search_official_youtube_video(
                     license="YouTube embeddable link",
                     attribution=_plain(snippet.get("channelTitle"), 200),
                     rights_status="approved",
+                    relevance_status="metadata_match",
+                    relevance_reason=(
+                        "视频来自人工白名单官方频道，且标题由 YouTube 查询返回；"
+                        "未下载或重新托管视频。"
+                    ),
                 )
     return None
+
+
+def _latin_query(value: str) -> str:
+    text = unicodedata.normalize("NFKD", value)
+    text = "".join(char for char in text if ord(char) < 128)
+    return SPACE_RE.sub(" ", re.sub(r"[^A-Za-z0-9 '|-]", " ", text)).strip()
+
+
+SPACE_RE = re.compile(r"\s+")
+
+
+def _video_queries(report: GeneratedReport) -> list[str]:
+    candidates = [
+        report.title,
+        _latin_query(report.title),
+        "FIFA World Cup highlights",
+        "World Cup match highlights",
+    ]
+    for spotlight in report.enrichment.player_spotlights[:2]:
+        candidates.append(f"{spotlight.media_search_name or spotlight.name} football")
+    for section in report.sections[:2]:
+        candidates.append(_latin_query(f"{section.heading} {section.body[:160]}"))
+    return [
+        item[:180]
+        for item in dict.fromkeys(candidate for candidate in candidates if candidate)
+    ][:6]
 
 
 async def collect_report_media(
@@ -162,16 +238,16 @@ async def collect_report_media(
         ),
         return_exceptions=True,
     )
-    assets.extend(
-        item for item in image_results if isinstance(item, MediaAsset)
-    )
+    assets.extend(item for item in image_results if isinstance(item, MediaAsset))
     if youtube_api_key and youtube_channel_ids:
-        try:
-            video = await search_official_youtube_video(
-                report.title, youtube_api_key, youtube_channel_ids
-            )
-        except (httpx.HTTPError, ValueError, KeyError):
-            video = None
-        if video:
-            assets.append(video)
+        for query in _video_queries(report):
+            try:
+                video = await search_official_youtube_video(
+                    query, youtube_api_key, youtube_channel_ids
+                )
+            except (httpx.HTTPError, ValueError, KeyError):
+                video = None
+            if video:
+                assets.append(video)
+                break
     return assets[:4]

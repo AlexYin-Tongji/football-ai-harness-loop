@@ -215,6 +215,17 @@ function enrichmentView(enrichment) {
       if (item.rights_status === "review_required") {
         card.append(el("b", "media-review", "画面相关性待人工确认"));
       }
+      if (item.relevance_status && item.relevance_status !== "visual_match") {
+        card.append(
+          el(
+            "b",
+            "media-review",
+            item.relevance_status === "metadata_match"
+              ? "已过元数据相关性筛选"
+              : "相关性未自动确认",
+          ),
+        );
+      }
       mediaGrid.append(card);
     });
     block.append(mediaGrid);

@@ -50,8 +50,47 @@ def test_commons_image_requires_license_and_attribution() -> None:
 
     assert asset is not None
     assert asset.rights_status == "review_required"
+    assert asset.relevance_status == "metadata_match"
     assert asset.license == "CC BY-SA 4.0"
     assert "Photographer" in asset.attribution
+
+
+def test_commons_image_rejects_surname_only_match() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "query": {
+                    "pages": [
+                        {
+                            "title": "File:Player 2026.jpg",
+                            "imageinfo": [
+                                {
+                                    "descriptionurl": (
+                                        "https://commons.wikimedia.org/wiki/"
+                                        "File:Player_2026.jpg"
+                                    ),
+                                    "thumburl": (
+                                        "https://upload.wikimedia.org/player.jpg"
+                                    ),
+                                    "extmetadata": {
+                                        "LicenseShortName": {"value": "CC BY 4.0"},
+                                    },
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+
+    asset = asyncio.run(
+        search_commons_player_image(
+            "Example Player", transport=httpx.MockTransport(handler)
+        )
+    )
+
+    assert asset is None
 
 
 def test_youtube_video_is_limited_to_allowlisted_channel() -> None:
@@ -91,3 +130,4 @@ def test_youtube_video_is_limited_to_allowlisted_channel() -> None:
     assert asset.asset_type == "video"
     assert "video-123" in str(asset.url)
     assert asset.rights_status == "approved"
+    assert asset.relevance_status == "metadata_match"

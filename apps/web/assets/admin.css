@@ -1,0 +1,174 @@
+.admin-body {
+  background: #f4f1e9;
+}
+
+.admin-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 46px 6vw 90px;
+}
+
+.admin-brand {
+  color: #111719;
+  margin-bottom: 60px;
+}
+
+.admin-hero {
+  max-width: 760px;
+}
+
+.admin-hero h1 {
+  font-size: clamp(42px, 5vw, 76px);
+  line-height: 1.02;
+  letter-spacing: -4px;
+  margin: 18px 0;
+}
+
+.admin-hero p {
+  color: #5e6764;
+  line-height: 1.8;
+}
+
+.admin-token {
+  margin: 45px 0;
+  background: #fff;
+  border: 1px solid #d7d4cc;
+  padding: 30px;
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 18px;
+  align-items: end;
+}
+
+.admin-token label span {
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.admin-token input {
+  width: 100%;
+  padding: 15px;
+  border: 1px solid #d2d0c9;
+  background: #faf9f5;
+}
+
+.admin-token .form-error {
+  grid-column: 1 / -1;
+}
+
+.health-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #101617;
+  color: #fff;
+  padding: 18px 22px;
+}
+
+.health-summary span {
+  font-weight: 900;
+  color: var(--lime);
+}
+
+.health-summary small {
+  color: #aab3b0;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: #d6d2c9;
+  margin: 1px 0 42px;
+}
+
+.health-card {
+  background: #fff;
+  padding: 24px;
+  min-height: 160px;
+}
+
+.health-card > span {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #66716d;
+}
+
+.health-card h3 {
+  margin: 24px 0 10px;
+}
+
+.health-card p {
+  color: #616966;
+  line-height: 1.7;
+}
+
+.health-card.healthy > span,
+.league-row.covered span {
+  color: #277a54;
+}
+
+.health-card.degraded > span,
+.health-card.unknown > span,
+.league-row.not_covered span,
+.league-row.rate_limited span {
+  color: #a56a00;
+}
+
+.health-card.needs_attention > span,
+.league-row.unauthorized span,
+.league-row.error span {
+  color: #b33828;
+}
+
+.league-coverage,
+.health-recommendations {
+  background: #fff;
+  padding: 32px;
+  margin-top: 22px;
+}
+
+.league-coverage h2,
+.health-recommendations h2 {
+  margin-top: 0;
+}
+
+.league-row {
+  border-top: 1px solid #e6e1d8;
+  padding: 18px 0;
+  display: grid;
+  grid-template-columns: 230px 90px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.league-row p {
+  margin: 0;
+  color: #606865;
+  line-height: 1.65;
+}
+
+.league-row small {
+  grid-column: 3;
+  color: #8a928f;
+}
+
+.health-recommendations p {
+  line-height: 1.75;
+  color: #606865;
+}
+
+@media (max-width: 800px) {
+  .admin-token,
+  .health-grid,
+  .league-row {
+    grid-template-columns: 1fr;
+  }
+
+  .league-row small {
+    grid-column: auto;
+  }
+}

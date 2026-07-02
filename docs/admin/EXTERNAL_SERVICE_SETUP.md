@@ -29,7 +29,8 @@ YOUTUBE_OFFICIAL_CHANNEL_IDS=UCpcTrCXblq78GZrTUTLWeBw
 ```
 
 服务启动后可访问 `/v1/product/status` 查看哪些外部服务已配置；接口只返回布尔状态，
-不返回密钥。
+不返回密钥。管理员可访问 `/admin` 并输入 `ADMIN_TOKEN`，查看 Sportmonks 五大联赛
+覆盖、NewsAPI、视频和视觉核验健康卡片。
 
 ## 第二组：扩大新闻覆盖
 
@@ -51,15 +52,31 @@ YOUTUBE_OFFICIAL_CHANNEL_IDS=UCpcTrCXblq78GZrTUTLWeBw
 | 赛程赛果备用 | [football-data.org](https://www.football-data.org/pricing) | `FOOTBALL_DATA_API_KEY` | 预测基线需要第二结构化来源时 | 轻量、便宜，适合兜底核对；深度球员/事件不如 Sportmonks |
 | 结构化足球备用 | [API-Football / API-SPORTS](https://www.api-football.com/documentation-v3) | `API_FOOTBALL_KEY` | Sportmonks 覆盖不足或需要第二付费足球源时 | 覆盖广，可作为竞争性备选；接入前必须先登记 Source Registry |
 | 视觉相关性核验 | [OpenAI Vision](https://developers.openai.com/api/docs/guides/images-vision) | `OPENAI_API_KEY` | 需要判断 Commons 图是否真是目标球员/比赛时 | 适合“图像理解 + 中文解释 + 结构化输出”；成本需单独设预算 |
-| 基础图像安全/标签 | [Google Cloud Vision](https://docs.cloud.google.com/vision/docs) | `GOOGLE_APPLICATION_CREDENTIALS` 或部署 Secret | 需要低成本 OCR、标签、安全识别时 | 适合机器标签，不适合作为球员身份最终判断 |
+| 基础图像安全/标签 | [Google Cloud Vision](https://cloud.google.com/vision/pricing) | `GOOGLE_CLOUD_VISION_API_KEY` 或 `GOOGLE_APPLICATION_CREDENTIALS` | 需要低成本 OCR、标签、安全识别时 | 官方价目包含每月前 1000 units 免费；适合机器标签，不适合作为球员身份最终判断 |
 
 ## 第三组：自动视觉核验
 
-当前 Commons 图片会校验许可证，但画面相关性仍标记为“待人工确认”。若需要自动确认
-图片中是否为目标球员或对应比赛，还需选择一个支持图像输入的模型供应商并提供 API
-Key。建议优先做 OpenAI Vision 连接器：输入 Commons 缩略图、目标球员英文名和证据
-标题，只输出 `matched / uncertain / rejected`、理由和成本；`uncertain` 仍交给人工确认。
-Google Cloud Vision 可作为低成本安全标签和 OCR 辅助，不单独决定“是否为该球员”。
+当前 Commons 图片会校验许可证，并要求标题或元数据能匹配目标姓名；没有自动视觉模型
+时仍标记为“待人工确认”。若需要自动确认图片中是否为目标球员或对应比赛，还需选择一
+个支持图像输入的模型供应商并提供 API Key。
+
+推荐先接入 Google Cloud Vision：它有免费额度，适合做标签、OCR、安全识别和 Web
+实体辅助。产品上仍应把输出当成“相关性证据”，不是球员身份的最终事实；`uncertain`
+继续交给人工确认。若以后需要更强的中文图像解释，再补 OpenAI Vision 或其他多模态
+模型，并设置独立成本预算。
+
+## Sportmonks 五大联赛覆盖
+
+Sportmonks token 是否“已配置”不等于套餐覆盖了目标联赛。管理健康卡会分别探测：
+
+- Premier League
+- La Liga
+- Serie A
+- Bundesliga
+- Ligue 1
+
+若显示 `not_covered`，通常需要在 Sportmonks 后台选择/购买对应联赛或开启试用；代码
+无法绕过套餐权限。免费层一般用于原型验证，不应假设包含五大联赛。
 
 ## 非外部申请项
 
@@ -81,6 +98,8 @@ NEWS_API_KEY=<optional-secret>
 FOOTBALL_DATA_API_KEY=<optional-secret>
 EVENT_REGISTRY_API_KEY=<optional-secret>
 API_FOOTBALL_KEY=<optional-secret>
+GOOGLE_CLOUD_VISION_API_KEY=<optional-vision-secret>
+GOOGLE_APPLICATION_CREDENTIALS=<optional-service-account-json-path>
 OPENAI_API_KEY=<optional-secret-for-vision>
 ```
 

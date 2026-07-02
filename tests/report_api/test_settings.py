@@ -13,6 +13,7 @@ def test_dotenv_loads_without_overriding_process_env(tmp_path, monkeypatch) -> N
                 "SPORTMONKS_API_TOKEN=sportmonks-token",
                 "YOUTUBE_API_KEY=youtube-token",
                 "YOUTUBE_OFFICIAL_CHANNEL_IDS=fifa-channel, club-channel",
+                "GOOGLE_CLOUD_VISION_API_KEY=vision-token",
             ]
         ),
         encoding="utf-8",
@@ -22,6 +23,7 @@ def test_dotenv_loads_without_overriding_process_env(tmp_path, monkeypatch) -> N
     monkeypatch.delenv("SPORTMONKS_API_TOKEN", raising=False)
     monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
     monkeypatch.delenv("YOUTUBE_OFFICIAL_CHANNEL_IDS", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_VISION_API_KEY", raising=False)
 
     try:
         loaded = load_local_dotenv(dotenv)
@@ -36,12 +38,14 @@ def test_dotenv_loads_without_overriding_process_env(tmp_path, monkeypatch) -> N
             "fifa-channel",
             "club-channel",
         )
+        assert settings.google_vision_configured is True
     finally:
         for key in (
             "LLM_PROVIDER",
             "SPORTMONKS_API_TOKEN",
             "YOUTUBE_API_KEY",
             "YOUTUBE_OFFICIAL_CHANNEL_IDS",
+            "GOOGLE_CLOUD_VISION_API_KEY",
         ):
             monkeypatch.delenv(key, raising=False)
 

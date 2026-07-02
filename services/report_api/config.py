@@ -68,6 +68,7 @@ class Settings:
     youtube_api_key: str | None = None
     youtube_official_channel_ids: tuple[str, ...] = ()
     licensed_media_enabled: bool = True
+    google_vision_configured: bool = False
 
     @classmethod
     def from_env(cls, dotenv_path: Path | None = None) -> Settings:
@@ -80,9 +81,7 @@ class Settings:
             ).rstrip("/"),
             deepseek_flash_model=os.getenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash"),
             deepseek_pro_model=os.getenv("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro"),
-            deepseek_max_concurrency=int(
-                os.getenv("DEEPSEEK_MAX_CONCURRENCY", "2")
-            ),
+            deepseek_max_concurrency=int(os.getenv("DEEPSEEK_MAX_CONCURRENCY", "2")),
             llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "120")),
             llm_max_output_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "6000")),
             report_max_attempts=int(os.getenv("REPORT_MAX_ATTEMPTS", "2")),
@@ -101,10 +100,12 @@ class Settings:
                 for item in os.getenv("YOUTUBE_OFFICIAL_CHANNEL_IDS", "").split(",")
                 if item.strip()
             ),
-            licensed_media_enabled=os.getenv(
-                "LICENSED_MEDIA_ENABLED", "true"
-            ).lower()
+            licensed_media_enabled=os.getenv("LICENSED_MEDIA_ENABLED", "true").lower()
             == "true",
+            google_vision_configured=bool(
+                os.getenv("GOOGLE_CLOUD_VISION_API_KEY")
+                or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            ),
         )
         settings.validate()
         return settings

@@ -111,10 +111,13 @@ def test_report_rejects_naive_cutoff_timestamp() -> None:
 
 def test_workbench_and_capabilities_are_available() -> None:
     page = asyncio.run(get("/"))
+    admin_page = asyncio.run(get("/admin"))
     capabilities = asyncio.run(get("/v1/system/capabilities"))
 
     assert page.status_code == 200
+    assert admin_page.status_code == 200
     assert "球脉 FootPulse AI" in page.text
+    assert "连接器健康" in admin_page.text
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
     assert capabilities.status_code == 200
     payload = capabilities.json()
@@ -213,7 +216,7 @@ def test_product_status_hides_model_details() -> None:
         "mode": "demo",
         "model_status": "demo",
         "model_issue": "",
-        "source": "批准来源池（Guardian/BBC RSS + GDELT）",
+        "source": "批准来源池（Guardian/BBC RSS + GDELT + 可选 NewsAPI）",
         "external_services": {
             "sportmonks": False,
             "football_data": False,
@@ -221,6 +224,7 @@ def test_product_status_hides_model_details() -> None:
             "youtube_key": False,
             "youtube_channel_allowlist": False,
             "licensed_media": True,
+            "google_vision": False,
         },
     }
 

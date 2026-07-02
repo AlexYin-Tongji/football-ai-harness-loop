@@ -46,6 +46,46 @@ def test_admin_catalog_requires_token_and_groups_data() -> None:
     )
 
 
+def test_admin_connector_health_requires_token_and_returns_safe_status(
+    monkeypatch,
+) -> None:
+    for key in (
+        "SPORTMONKS_API_TOKEN",
+        "NEWS_API_KEY",
+        "FOOTBALL_DATA_API_KEY",
+        "YOUTUBE_API_KEY",
+        "YOUTUBE_OFFICIAL_CHANNEL_IDS",
+        "GOOGLE_CLOUD_VISION_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    settings = Settings(admin_enabled=True, admin_token="admin-test-token")
+    app = create_app(settings, MockProvider())
+
+    async def scenario() -> tuple[httpx.Response, httpx.Response]:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            denied = await client.get(
+                "/v1/admin/connector-health",
+                headers={"X-Admin-Token": "wrong"},
+            )
+            allowed = await client.get(
+                "/v1/admin/connector-health",
+                headers={"X-Admin-Token": "admin-test-token"},
+            )
+            return denied, allowed
+
+    denied, allowed = asyncio.run(scenario())
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
+    payload = allowed.json()
+    assert payload["sportmonks"]["configured"] is False
+    assert payload["sportmonks"]["big_five_leagues"][0]["status"] == "not_configured"
+    assert payload["media"]["visual_relevance"]["configured"] is False
+
+
 def test_prediction_result_write_requires_explicit_role(tmp_path: Path) -> None:
     settings = Settings(
         admin_enabled=True,

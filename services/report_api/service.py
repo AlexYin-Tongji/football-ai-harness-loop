@@ -71,9 +71,7 @@ def _final_output_budget(request: ReportRequest, configured_limit: int) -> int:
     if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:
         return min(
             configured_limit,
-            {"concise": 2400, "standard": 3600, "deep": 4500}[
-                request.length.value
-            ],
+            {"concise": 2400, "standard": 3600, "deep": 4500}[request.length.value],
         )
     if request.report_type == ReportType.MATCH_PREDICTION:
         return min(configured_limit, 4500)
@@ -87,9 +85,7 @@ def _stable_final_output_budget(request: ReportRequest, configured_limit: int) -
     if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:
         return min(
             configured_limit,
-            {"concise": 2000, "standard": 2800, "deep": 3300}[
-                request.length.value
-            ],
+            {"concise": 2000, "standard": 2800, "deep": 3300}[request.length.value],
         )
     if request.report_type == ReportType.MATCH_PREDICTION:
         return min(configured_limit, 3000)
@@ -110,6 +106,77 @@ def _append_report_warning(report: GeneratedReport, warning: str) -> None:
         report.warnings.append(warning)
     elif report.warnings:
         report.warnings[-1] = warning
+
+
+def _daily_editor_outline(request: ReportRequest, desk_drafts: list[DeskDraft]) -> str:
+    """Build a deterministic synthesis scaffold before the final LLM pass."""
+    clusters: dict[str, dict[str, object]] = {}
+    for item in request.evidence:
+        if not item.story_cluster_id:
+            continue
+        cluster = clusters.setdefault(
+            item.story_cluster_id,
+            {
+                "evidence_ids": [],
+                "sources": set(),
+                "titles": [],
+                "unverified": 0,
+            },
+        )
+        cluster["evidence_ids"].append(item.id)  # type: ignore[index,union-attr]
+        cluster["sources"].add(  # type: ignore[union-attr]
+            item.source_independence_key or item.source_id
+        )
+        cluster["titles"].append(item.title)  # type: ignore[index,union-attr]
+        if item.verification_status == "unverified_lead":
+            cluster["unverified"] = int(cluster["unverified"]) + 1
+
+    cluster_rows = []
+    for cluster_id, cluster in sorted(
+        clusters.items(),
+        key=lambda pair: len(pair[1]["evidence_ids"]),  # type: ignore[arg-type]
+        reverse=True,
+    )[:8]:
+        cluster_rows.append(
+            {
+                "cluster_id": cluster_id,
+                "evidence_ids": cluster["evidence_ids"][:8],
+                "independent_sources": len(cluster["sources"]),
+                "unverified_leads": cluster["unverified"],
+                "sample_titles": cluster["titles"][:3],
+            }
+        )
+
+    columns = []
+    for draft in desk_drafts:
+        evidence_ids = list(
+            dict.fromkeys(
+                evidence_id
+                for section in draft.sections
+                for evidence_id in section.evidence_ids
+            )
+        )
+        columns.append(
+            {
+                "desk": draft.desk,
+                "heading": draft.heading,
+                "section_count": len(draft.sections),
+                "evidence_ids": evidence_ids[:12],
+                "warnings": draft.warnings[:4],
+            }
+        )
+
+    outline = {
+        "editorial_contract": [
+            "整合为《今日球脉》，保留赛事与转会两个栏目边界。",
+            "同一 story_cluster_id 只写一次，保留不同来源的分歧。",
+            "unverified_lead 必须继续标注为传闻/线索，不得升级为官宣。",
+            "不要新增证据外事实；引用只能使用 evidence_ids。",
+        ],
+        "columns": columns,
+        "story_clusters": cluster_rows,
+    }
+    return json.dumps(outline, ensure_ascii=False)
 
 
 class ReportService:
@@ -170,18 +237,21 @@ class ReportService:
                 _compact_request_for_final_editor(request), skill_instructions
             )
             if desk_drafts:
+                outline = _daily_editor_outline(request, desk_drafts)
                 messages.append(
                     {
                         "role": "user",
                         "content": (
+                            "以下是 Harness 生成的确定性合稿提纲。它不是新事实，"
+                            "只用于控制栏目边界、引用和去重；如果提纲与证据冲突，"
+                            "以证据和草稿为准。\n"
+                            f"{outline}\n\n"
                             "以下是赛事桌与转会桌分别完成的草稿。你是总编辑：去重、"
                             "保留两个栏目边界并整合为一份《今日球脉》。传闻必须保留"
                             "明确的未核实标签，不能因进入草稿而升级可信度。"
                             "你已经收到压缩证据索引；事实细节优先来自草稿，"
                             "引用只能使用索引中存在的 evidence_id。\n"
-                            + "\n".join(
-                                item.model_dump_json() for item in desk_drafts
-                            )
+                            + "\n".join(item.model_dump_json() for item in desk_drafts)
                         ),
                     }
                 )
@@ -198,9 +268,7 @@ class ReportService:
                             "你是终审席：必须审阅分歧，不得简单平均；仅能引用输入 "
                             "evidence_id，并输出最终报告。如果少于两个席位，必须在 "
                             "warnings 中说明预测委员会已降级。\n"
-                            + "\n".join(
-                                item.model_dump_json() for item in opinions
-                            )
+                            + "\n".join(item.model_dump_json() for item in opinions)
                         ),
                     }
                 )
@@ -272,9 +340,7 @@ class ReportService:
                     raise
                 recovery_rounds += 1
                 used_stable_final = True
-                stable_request = self._stable_final_request(
-                    llm_request, request, exc
-                )
+                stable_request = self._stable_final_request(llm_request, request, exc)
                 try:
                     last_result = await self._provider.generate_json(stable_request)
                 except LLMProviderError as stable_exc:
@@ -402,11 +468,7 @@ class ReportService:
     ) -> ReportResponse:
         if progress_callback:
             progress_callback("deterministic_finalizer", 88)
-        sections = [
-            section
-            for draft in desk_drafts
-            for section in draft.sections
-        ][:10]
+        sections = [section for draft in desk_drafts for section in draft.sections][:10]
         warnings = [
             "高思考总编辑与稳定合稿均遇到模型连接异常；系统已根据完成的分桌草稿"
             "生成保守版本，请发布前重点复核结构和措辞。"
@@ -466,9 +528,7 @@ class ReportService:
         brief_schema = json.dumps(DeskBrief.model_json_schema(), ensure_ascii=False)
         draft_schema = json.dumps(DeskDraft.model_json_schema(), ensure_ascii=False)
 
-        async def research(
-            desk: str, instruction: str
-        ) -> tuple[DeskBrief, LLMResult]:
+        async def research(desk: str, instruction: str) -> tuple[DeskBrief, LLMResult]:
             result = await self._provider.generate_json(
                 LLMRequest(
                     purpose=f"daily_research:{desk}",
@@ -655,9 +715,7 @@ class ReportService:
             *(run_role(role, instruction) for role, instruction in roles.items()),
             return_exceptions=True,
         )
-        successful = [
-            item for item in completed if not isinstance(item, BaseException)
-        ]
+        successful = [item for item in completed if not isinstance(item, BaseException)]
         if not successful:
             # The Pro judge can still produce a bounded report from the evidence
             # packet. This avoids one transient Flash seat taking down the user

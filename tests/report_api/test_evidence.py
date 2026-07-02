@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from services.report_api.domain import ConsumerReportRequest
+from services.report_api.domain import ConsumerReportRequest, Evidence
 from services.report_api.evidence import (
+    _annotate_story_clusters,
+    _cluster_evidence,
     parse_bbc_feed,
     parse_gdelt_articles,
     parse_guardian_feed,
+    parse_newsapi_articles,
 )
 
 FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -103,3 +106,77 @@ def test_bbc_feed_is_an_independent_approved_publisher() -> None:
     assert len(evidence) == 1
     assert evidence[0].source_id == "bbc-football-rss"
     assert evidence[0].source_independence_key == "bbc-sport"
+
+
+def test_newsapi_items_are_metadata_leads_from_approved_domains() -> None:
+    request = ConsumerReportRequest(
+        report_type="transfer_daily",
+        subject="Example Player transfer",
+        report_date=date(2026, 7, 2),
+    )
+    payload = {
+        "articles": [
+            {
+                "source": {"name": "Sky Sports"},
+                "title": "Example Player transfer talks continue",
+                "description": "Club talks are ongoing.",
+                "url": "https://www.skysports.com/football/news/example",
+                "publishedAt": "2026-07-02T07:00:00Z",
+                "content": "This full article body must not be stored.",
+            },
+            {
+                "source": {"name": "Blog"},
+                "title": "Unapproved rumour",
+                "description": "Ignore me",
+                "url": "https://rumours.example/story",
+                "publishedAt": "2026-07-02T07:00:00Z",
+            },
+        ]
+    }
+
+    evidence = parse_newsapi_articles(
+        payload,
+        request,
+        cutoff=datetime(2026, 7, 2, 8, tzinfo=UTC),
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].source_id == "sky-sports"
+    assert evidence[0].evidence_kind == "discovery"
+    assert evidence[0].verification_status == "unverified_lead"
+    assert "full article body" not in evidence[0].summary
+
+
+def test_story_clusters_annotate_independent_transfer_leads() -> None:
+    request_time = datetime(2026, 7, 2, 8, tzinfo=UTC)
+    items = [
+        {
+            "id": "ev-1",
+            "title": "Example Player transfer bid accepted",
+            "url": "https://www.bbc.com/sport/football/example",
+            "published_at": request_time,
+            "source_name": "BBC",
+            "summary": "A transfer bid has been accepted.",
+            "source_id": "bbc-sport",
+            "verification_status": "publisher_report",
+            "source_independence_key": "bbc-sport",
+        },
+        {
+            "id": "ev-2",
+            "title": "Example Player transfer bid talks advance",
+            "url": "https://www.skysports.com/football/example",
+            "published_at": request_time,
+            "source_name": "Sky Sports",
+            "summary": "Talks over the transfer bid are advancing.",
+            "source_id": "sky-sports",
+            "evidence_kind": "discovery",
+            "verification_status": "unverified_lead",
+            "source_independence_key": "sky-sports",
+        },
+    ]
+    evidence = _cluster_evidence([Evidence(**item) for item in items])
+    _annotate_story_clusters(evidence)
+
+    assert evidence[0].story_cluster_id == evidence[1].story_cluster_id
+    assert "事件簇" in evidence[0].summary
+    assert "2 个独立来源" in evidence[0].summary

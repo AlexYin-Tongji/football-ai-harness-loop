@@ -178,9 +178,7 @@ class MatchTimelineEvent(BaseModel):
     ]
     player: str | None = Field(default=None, max_length=120)
     team: str | None = Field(default=None, max_length=120)
-    score_after: str | None = Field(
-        default=None, pattern=r"^\d{1,2}-\d{1,2}$"
-    )
+    score_after: str | None = Field(default=None, pattern=r"^\d{1,2}-\d{1,2}$")
     description: str = Field(min_length=1, max_length=800)
     evidence_ids: list[str] = Field(min_length=1)
 
@@ -194,12 +192,14 @@ class MediaAsset(BaseModel):
     license: str = Field(min_length=1, max_length=120)
     attribution: str = Field(min_length=1, max_length=500)
     rights_status: Literal["approved", "review_required"]
+    relevance_status: Literal["visual_match", "metadata_match", "uncertain"] = (
+        "uncertain"
+    )
+    relevance_reason: str | None = Field(default=None, max_length=500)
 
 
 class EditorialEnrichment(BaseModel):
-    player_spotlights: list[PlayerSpotlight] = Field(
-        default_factory=list, max_length=6
-    )
+    player_spotlights: list[PlayerSpotlight] = Field(default_factory=list, max_length=6)
     match_timeline: list[MatchTimelineEvent] = Field(
         default_factory=list, max_length=20
     )

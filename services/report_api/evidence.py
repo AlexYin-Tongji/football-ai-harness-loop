@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import re
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -22,6 +23,7 @@ SPACE_RE = re.compile(r"\s+")
 _feed_cache: tuple[datetime, bytes] | None = None
 _bbc_feed_cache: tuple[datetime, bytes] | None = None
 _gdelt_cache: dict[str, tuple[datetime, dict[str, Any]]] = {}
+_newsapi_cache: dict[str, tuple[datetime, dict[str, Any]]] = {}
 CLUSTER_STOP_WORDS = {
     "a",
     "an",
@@ -38,6 +40,41 @@ CLUSTER_STOP_WORDS = {
     "transfer",
     "world",
     "cup",
+    "news",
+    "latest",
+    "linked",
+    "club",
+    "man",
+}
+TRANSFER_STAGE_RE = re.compile(
+    r"\b(bid|offer|talks?|agreement|agreed|medical|sign(?:s|ing|ed)?|"
+    r"target|interest|loan|clause|release|reject(?:s|ed)?|rumou?rs?)\b",
+    re.I,
+)
+TRANSFER_STAGE_WORDS = {
+    "bid",
+    "offer",
+    "talk",
+    "talks",
+    "agreement",
+    "agreed",
+    "medical",
+    "sign",
+    "signs",
+    "signing",
+    "signed",
+    "target",
+    "interest",
+    "loan",
+    "clause",
+    "release",
+    "reject",
+    "rejects",
+    "rejected",
+    "rumour",
+    "rumours",
+    "rumor",
+    "rumors",
 }
 
 
@@ -348,6 +385,10 @@ def _publisher_for_domain(
     return None
 
 
+def _approved_newsapi_domains() -> str:
+    return ",".join(sorted(_publisher_map())[:20])
+
+
 def parse_gdelt_articles(
     payload: dict[str, Any],
     request: ConsumerReportRequest,
@@ -444,6 +485,199 @@ async def collect_gdelt_evidence(
     return parse_gdelt_articles(payload, request, max_items=max_items, cutoff=now)
 
 
+def _newsapi_query(request: ConsumerReportRequest) -> str:
+    subject = re.sub(r"[^A-Za-z0-9 '\-]", " ", request.subject)
+    subject = SPACE_RE.sub(" ", subject).strip()[:140]
+    suffix = {
+        ReportType.DAILY_FOOTBALL_DIGEST: (
+            '(football OR soccer) AND ("World Cup" OR transfer OR signing)'
+        ),
+        ReportType.TRANSFER_DAILY: "(transfer OR signing OR bid OR talks OR deal)",
+        ReportType.WORLD_CUP_DAILY: '"World Cup" AND football',
+        ReportType.MATCH_PREDICTION: "(preview OR prediction OR lineup OR injury)",
+    }[request.report_type]
+    return f"{subject} {suffix}".strip()
+
+
+def parse_newsapi_articles(
+    payload: dict[str, Any],
+    request: ConsumerReportRequest,
+    *,
+    max_items: int = 20,
+    cutoff: datetime | None = None,
+) -> list[Evidence]:
+    cutoff = cutoff or datetime.now(UTC)
+    earliest = cutoff - timedelta(
+        days=10 if request.report_type == ReportType.TRANSFER_DAILY else 5
+    )
+    publishers = _publisher_map()
+    evidence: list[Evidence] = []
+    seen_urls: set[str] = set()
+    per_publisher: dict[str, int] = {}
+
+    for item in payload.get("articles", []):
+        title = _clean_text(item.get("title"), 500)
+        url = _clean_text(item.get("url"), 1000)
+        description = _clean_text(item.get("description"), 1200)
+        if not title or not url:
+            continue
+        hostname = (urlparse(url).hostname or "").lower()
+        publisher = _publisher_for_domain(hostname, publishers)
+        if publisher is None or url in seen_urls:
+            continue
+        try:
+            published_at = datetime.fromisoformat(
+                str(item.get("publishedAt") or "").replace("Z", "+00:00")
+            ).astimezone(UTC)
+        except ValueError:
+            continue
+        if not earliest <= published_at <= cutoff:
+            continue
+        publisher_id = str(publisher["id"])
+        if per_publisher.get(publisher_id, 0) >= 4:
+            continue
+        seen_urls.add(url)
+        per_publisher[publisher_id] = per_publisher.get(publisher_id, 0) + 1
+        evidence.append(
+            Evidence(
+                id="newsapi-" + hashlib.sha256(url.encode()).hexdigest()[:12],
+                title=title,
+                url=url,
+                published_at=published_at,
+                source_name=str((item.get("source") or {}).get("name") or publisher_id),
+                summary=(
+                    f"NewsAPI 线索：{description or title}。当前只使用标题、链接、"
+                    "发布时间和短描述，需在报告中保持线索/传闻标签。"
+                ),
+                source_id=publisher_id,
+                trust_tier=str(publisher["tier"]),
+                evidence_kind="discovery",
+                verification_status="unverified_lead",
+                source_independence_key=publisher_id,
+            )
+        )
+        if len(evidence) >= max_items:
+            break
+    return evidence
+
+
+async def collect_newsapi_evidence(
+    request: ConsumerReportRequest, *, max_items: int = 20
+) -> list[Evidence]:
+    api_key = os.getenv("NEWS_API_KEY")
+    if not api_key:
+        return []
+    query = _newsapi_query(request)
+    cache_key = f"{query}|{_approved_newsapi_domains()}"
+    now = datetime.now(UTC)
+    cached = _newsapi_cache.get(cache_key)
+    if cached and now - cached[0] < timedelta(minutes=15):
+        payload = cached[1]
+    else:
+        timeout = httpx.Timeout(18.0, connect=7.0)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=False,
+            headers={
+                "User-Agent": "FootPulse/0.4 newsapi-discovery",
+                "X-Api-Key": api_key,
+            },
+        ) as client:
+            response = await client.get(
+                "https://newsapi.org/v2/everything",
+                params={
+                    "q": query,
+                    "searchIn": "title,description",
+                    "language": "en",
+                    "domains": _approved_newsapi_domains(),
+                    "pageSize": min(max(max_items * 2, 10), 50),
+                    "sortBy": "publishedAt",
+                },
+            )
+            response.raise_for_status()
+            if len(response.content) > 2_000_000:
+                raise EvidenceCollectionError("NewsAPI 发现结果超过安全上限")
+            payload = response.json()
+            _newsapi_cache[cache_key] = (now, payload)
+    return parse_newsapi_articles(payload, request, max_items=max_items, cutoff=now)
+
+
+def _story_tokens(item: Evidence) -> set[str]:
+    text = f"{item.title} {item.summary}".casefold()
+    tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]{2,}", text)
+        if token not in CLUSTER_STOP_WORDS
+    }
+    stages = {match.group(1).casefold() for match in TRANSFER_STAGE_RE.finditer(text)}
+    return tokens | stages
+
+
+def _story_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    union = left | right
+    overlap = left & right
+    return len(overlap) / len(union)
+
+
+def _same_story_cluster(tokens: set[str], known_tokens: set[str]) -> bool:
+    overlap = tokens & known_tokens
+    if _story_similarity(tokens, known_tokens) >= 0.42:
+        return True
+    shared_entities = overlap - TRANSFER_STAGE_WORDS
+    shared_stage = overlap & TRANSFER_STAGE_WORDS
+    return len(shared_entities) >= 2 and bool(shared_stage)
+
+
+def _cluster_evidence(unique: list[Evidence]) -> list[Evidence]:
+    cluster_tokens: list[tuple[str, set[str]]] = []
+    for item in unique:
+        tokens = _story_tokens(item)
+        cluster_id = None
+        for known_id, known_tokens in cluster_tokens:
+            if _same_story_cluster(tokens, known_tokens):
+                cluster_id = known_id
+                known_tokens.update(tokens)
+                break
+        if cluster_id is None:
+            signature = " ".join(sorted(tokens)) or str(item.url)
+            cluster_id = "story-" + hashlib.sha256(signature.encode()).hexdigest()[:12]
+            cluster_tokens.append((cluster_id, set(tokens)))
+        item.story_cluster_id = cluster_id
+    return unique
+
+
+def _annotate_story_clusters(items: list[Evidence]) -> None:
+    clusters: dict[str, list[Evidence]] = {}
+    for item in items:
+        if item.story_cluster_id:
+            clusters.setdefault(item.story_cluster_id, []).append(item)
+    for cluster_id, members in clusters.items():
+        source_count = len(
+            {member.source_independence_key or member.source_id for member in members}
+        )
+        lead_titles = [member.title for member in members[:3]]
+        stage_hits = sorted(
+            {
+                match.group(1).casefold()
+                for member in members
+                for match in TRANSFER_STAGE_RE.finditer(
+                    f"{member.title} {member.summary}"
+                )
+            }
+        )
+        stage = "、".join(stage_hits[:4]) if stage_hits else "待编辑判断"
+        cluster_note = (
+            f"事件簇 {cluster_id}：{len(members)} 条线索，"
+            f"{source_count} 个独立来源，阶段关键词：{stage}。"
+            f"同簇标题：{'；'.join(lead_titles)}。"
+        )
+        for member in members:
+            if cluster_note not in member.summary:
+                member.summary = _clean_text(f"{cluster_note}{member.summary}", 4000)
+
+
 async def collect_research_evidence(
     request: ConsumerReportRequest, *, max_items: int = 24
 ) -> list[Evidence]:
@@ -456,8 +690,11 @@ async def collect_research_evidence(
     gdelt_task = collect_gdelt_evidence(
         request, max_items=max(4, max_items - min(12, max_items // 2))
     )
+    newsapi_task = collect_newsapi_evidence(
+        request, max_items=max(4, max_items - min(12, max_items // 2))
+    )
     results = await asyncio.gather(
-        guardian_task, bbc_task, gdelt_task, return_exceptions=True
+        guardian_task, bbc_task, gdelt_task, newsapi_task, return_exceptions=True
     )
     combined: list[Evidence] = []
     errors: list[Exception] = []
@@ -469,7 +706,6 @@ async def collect_research_evidence(
         combined.extend(result)
 
     unique: list[Evidence] = []
-    cluster_tokens: list[tuple[str, set[str]]] = []
     seen: set[str] = set()
     subject_terms = [
         term
@@ -510,26 +746,11 @@ async def collect_research_evidence(
         if canonical in seen:
             continue
         seen.add(canonical)
-        tokens = {
-            token
-            for token in re.findall(r"[a-z0-9]{2,}", item.title.casefold())
-            if token not in CLUSTER_STOP_WORDS
-        }
-        cluster_id = None
-        for known_id, known_tokens in cluster_tokens:
-            union = tokens | known_tokens
-            similarity = len(tokens & known_tokens) / len(union) if union else 0
-            if similarity >= 0.55:
-                cluster_id = known_id
-                break
-        if cluster_id is None:
-            signature = " ".join(sorted(tokens)) or canonical
-            cluster_id = "story-" + hashlib.sha256(signature.encode()).hexdigest()[:12]
-            cluster_tokens.append((cluster_id, tokens))
-        item.story_cluster_id = cluster_id
         unique.append(item)
         if len(unique) >= max_items:
             break
+    _cluster_evidence(unique)
+    _annotate_story_clusters(unique)
     if len(unique) < 2:
         raise EvidenceCollectionError(
             "没有找到足够的近期资料，请写明球队英文名或更具体的主题"

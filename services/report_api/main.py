@@ -16,6 +16,10 @@ from services.report_api.admin import (
     data_catalog,
 )
 from services.report_api.config import Settings
+from services.report_api.connector_health import (
+    ConnectorHealthResponse,
+    collect_connector_health,
+)
 from services.report_api.domain import (
     ConsumerReportRequest,
     ReportRequest,
@@ -153,6 +157,12 @@ def create_app(
             web_root / "index.html", headers={"Cache-Control": "no-cache"}
         )
 
+    @app.get("/admin", include_in_schema=False)
+    async def admin_home() -> FileResponse:
+        return FileResponse(
+            web_root / "admin.html", headers={"Cache-Control": "no-cache"}
+        )
+
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "provider": settings.llm_provider}
@@ -166,7 +176,7 @@ def create_app(
             "mode": "live" if settings.llm_provider == "deepseek" else "demo",
             "model_status": model_status,
             "model_issue": provider_health["message"] or "",
-            "source": "批准来源池（Guardian/BBC RSS + GDELT）",
+            "source": "批准来源池（Guardian/BBC RSS + GDELT + 可选 NewsAPI）",
             "external_services": {
                 "sportmonks": settings.sportmonks_configured,
                 "football_data": settings.football_data_configured,
@@ -176,6 +186,7 @@ def create_app(
                     settings.youtube_official_channel_ids
                 ),
                 "licensed_media": settings.licensed_media_enabled,
+                "google_vision": settings.google_vision_configured,
             },
         }
 
@@ -190,6 +201,18 @@ def create_app(
         ):
             raise HTTPException(status_code=403, detail="forbidden")
         return data_catalog(datetime.now(UTC))
+
+    @app.get("/v1/admin/connector-health", response_model=ConnectorHealthResponse)
+    async def admin_connector_health(
+        x_admin_token: str | None = Header(default=None),
+    ) -> ConnectorHealthResponse:
+        if not settings.admin_enabled:
+            raise HTTPException(status_code=404, detail="not found")
+        if not x_admin_token or not compare_digest(
+            x_admin_token, settings.admin_token or ""
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return await collect_connector_health()
 
     @app.post("/v1/reports/generate", response_model=ReportResponse)
     async def generate_report(request: ReportRequest) -> ReportResponse:
@@ -229,8 +252,8 @@ def create_app(
             match_context = None
             if request.report_type == ReportType.MATCH_PREDICTION:
                 try:
-                    structured, match_context = (
-                        await collect_structured_match_context(request)
+                    structured, match_context = await collect_structured_match_context(
+                        request
                     )
                     evidence = [*structured, *evidence]
                 except Exception:
@@ -274,8 +297,8 @@ def create_app(
             match_context = None
             if request.report_type == ReportType.MATCH_PREDICTION:
                 try:
-                    structured, match_context = (
-                        await collect_structured_match_context(request)
+                    structured, match_context = await collect_structured_match_context(
+                        request
                     )
                     evidence = [*structured, *evidence]
                 except Exception:
@@ -302,6 +325,7 @@ def create_app(
                 ),
                 progress=45,
             )
+
             def record_progress(phase: str, progress: int) -> None:
                 job_store.update(
                     job_id,
@@ -365,9 +389,7 @@ def create_app(
                 error="任务遇到内部错误并已安全停止，请稍后重试",
             )
 
-    async def execute_research_job(
-        job_id: str, request: ConsumerReportRequest
-    ) -> None:
+    async def execute_research_job(job_id: str, request: ConsumerReportRequest) -> None:
         job_store.update(
             job_id,
             status="queued",
@@ -431,9 +453,7 @@ def create_app(
         if x_admin_role != "result_writer":
             raise HTTPException(status_code=403, detail="result_writer role required")
         try:
-            return job_store.record_prediction_outcome(
-                request.job_id, request.outcome
-            )
+            return job_store.record_prediction_outcome(request.job_id, request.outcome)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

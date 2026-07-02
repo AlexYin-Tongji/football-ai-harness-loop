@@ -107,6 +107,19 @@
       "store_policy": "metadata_and_external_link_only_no_video_download"
     },
     {
+      "id": "google-cloud-vision",
+      "name": "Google Cloud Vision API",
+      "category": "visual_relevance_check",
+      "trust_tier": "vision_model_auxiliary",
+      "access": "api",
+      "production_status": "candidate_free_tier_available",
+      "base_url": "https://vision.googleapis.com/v1",
+      "docs_url": "https://cloud.google.com/vision/pricing",
+      "credential_env": "GOOGLE_CLOUD_VISION_API_KEY",
+      "allowed_content": ["image_labels", "safe_search", "ocr_text", "web_entities"],
+      "store_policy": "derived_labels_only_no_image_copy"
+    },
+    {
       "id": "newsapi",
       "name": "NewsAPI",
       "category": "news_discovery",

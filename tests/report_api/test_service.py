@@ -262,9 +262,9 @@ def test_service_injects_deterministic_baseline_after_model_validation() -> None
 
 def test_service_injects_only_sourced_external_prediction() -> None:
     request = request_payload()
-    request.evidence[0].summary = (
-        "Opta rates the home side's chance of victory in normal time at 73.9%."
-    )
+    request.evidence[
+        0
+    ].summary = "Opta rates the home side's chance of victory in normal time at 73.9%."
     provider = SequenceProvider([report_output()])
     service = ReportService(
         provider=provider,
@@ -284,9 +284,9 @@ def test_service_injects_only_sourced_external_prediction() -> None:
 
 def test_service_normalizes_external_alias_and_missing_qualification() -> None:
     request = request_payload()
-    request.evidence[0].summary = (
-        "Opta rates the home side's chance of victory in normal time at 73.9%."
-    )
+    request.evidence[
+        0
+    ].summary = "Opta rates the home side's chance of victory in normal time at 73.9%."
     output = report_output()
     output["prediction"]["qualification"] = None
     output["prediction"]["external_predictions"] = [
@@ -317,9 +317,9 @@ def test_service_normalizes_external_alias_and_missing_qualification() -> None:
 
 def test_service_accepts_evidence_backed_player_card_and_match_timeline() -> None:
     request = request_payload()
-    request.evidence[0].summary = (
-        "Example Player scored his 12th goal in the 72nd minute to make it 2-1."
-    )
+    request.evidence[
+        0
+    ].summary = "Example Player scored his 12th goal in the 72nd minute to make it 2-1."
     output = report_output()
     output["enrichment"] = {
         "player_spotlights": [
@@ -421,6 +421,7 @@ def test_daily_digest_final_editor_uses_compacted_evidence() -> None:
         message["content"] for message in provider.final_request.messages
     )
     assert "ev-24" in final_text
+    assert "Harness 生成的确定性合稿提纲" in final_text
     assert len(final_text) < 45_000
     assert provider.final_request.max_output_tokens == 4500
 
