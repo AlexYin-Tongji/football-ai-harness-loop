@@ -38,6 +38,10 @@ uvicorn services.report_api.main:app --reload
 `DEEPSEEK_API_KEY`，才使用隐藏输入读取密钥。密钥只写入当前服务进程环境，服务退出后
 清理变量，不会进入浏览器或 Git。
 
+若桌面环境或终端进程中残留了旧 `DEEPSEEK_API_KEY`，本地 `.env` 可显式加入
+`FOOTPULSE_DOTENV_OVERRIDE=true`，让 gitignored `.env` 覆盖当前进程变量。默认值为
+`false`，生产环境仍应优先使用部署平台 Secret。
+
 可用状态检查：
 
 - `/health`：服务是否启动，以及当前是 mock 还是 DeepSeek。

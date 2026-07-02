@@ -12,6 +12,7 @@ function Import-LocalDotEnv {
     if (-not (Test-Path -LiteralPath $envPath)) {
         return
     }
+    $entries = New-Object System.Collections.Generic.List[object]
     foreach ($line in Get-Content -LiteralPath $envPath -Encoding UTF8) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) {
@@ -25,15 +26,25 @@ function Import-LocalDotEnv {
         if ($name -notmatch "^[A-Z][A-Z0-9_]*$") {
             continue
         }
-        if ([Environment]::GetEnvironmentVariable($name, "Process")) {
-            continue
-        }
         $value = $parts[1].Trim()
         if ($value.Length -ge 2 -and $value[0] -eq $value[$value.Length - 1] -and ($value[0] -eq '"' -or $value[0] -eq "'")) {
             $value = $value.Substring(1, $value.Length - 2)
         }
-        [Environment]::SetEnvironmentVariable($name, $value, "Process")
-        $loadedEnvKeys.Add($name) | Out-Null
+        $entries.Add([PSCustomObject]@{ Name = $name; Value = $value }) | Out-Null
+    }
+    $override = $env:FOOTPULSE_DOTENV_OVERRIDE -eq "true"
+    foreach ($entry in $entries) {
+        if ($entry.Name -eq "FOOTPULSE_DOTENV_OVERRIDE" -and $entry.Value -eq "true") {
+            $override = $true
+            break
+        }
+    }
+    foreach ($entry in $entries) {
+        if (-not $override -and [Environment]::GetEnvironmentVariable($entry.Name, "Process")) {
+            continue
+        }
+        [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, "Process")
+        $loadedEnvKeys.Add($entry.Name) | Out-Null
     }
 }
 

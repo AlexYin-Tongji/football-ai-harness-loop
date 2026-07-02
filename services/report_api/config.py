@@ -27,19 +27,29 @@ def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
 
 
 def load_local_dotenv(path: Path | None = None) -> tuple[str, ...]:
-    """Load a local gitignored .env file without overriding process secrets."""
+    """Load a local gitignored .env file.
+
+    Process environment variables win by default. Local desktop runs can opt in
+    to .env precedence with FOOTPULSE_DOTENV_OVERRIDE=true when a stale parent
+    process secret would otherwise keep being inherited.
+    """
     dotenv_path = path or _default_dotenv_path()
     if os.getenv("FOOTPULSE_LOAD_DOTENV", "true").lower() == "false":
         return ()
     if not dotenv_path.exists():
         return ()
     loaded: list[str] = []
-    for line in dotenv_path.read_text(encoding="utf-8-sig").splitlines():
-        parsed = _parse_dotenv_line(line)
-        if parsed is None:
-            continue
-        key, value = parsed
-        if key not in os.environ:
+    parsed_lines = [
+        parsed
+        for line in dotenv_path.read_text(encoding="utf-8-sig").splitlines()
+        if (parsed := _parse_dotenv_line(line)) is not None
+    ]
+    override = os.getenv("FOOTPULSE_DOTENV_OVERRIDE", "").lower() == "true" or any(
+        key == "FOOTPULSE_DOTENV_OVERRIDE" and value.lower() == "true"
+        for key, value in parsed_lines
+    )
+    for key, value in parsed_lines:
+        if override or key not in os.environ:
             os.environ[key] = value
             loaded.append(key)
     return tuple(loaded)

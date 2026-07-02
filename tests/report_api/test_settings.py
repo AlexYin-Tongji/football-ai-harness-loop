@@ -24,6 +24,7 @@ def test_dotenv_loads_without_overriding_process_env(tmp_path, monkeypatch) -> N
     monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
     monkeypatch.delenv("YOUTUBE_OFFICIAL_CHANNEL_IDS", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_VISION_API_KEY", raising=False)
+    monkeypatch.delenv("FOOTPULSE_DOTENV_OVERRIDE", raising=False)
 
     try:
         loaded = load_local_dotenv(dotenv)
@@ -46,6 +47,7 @@ def test_dotenv_loads_without_overriding_process_env(tmp_path, monkeypatch) -> N
             "YOUTUBE_API_KEY",
             "YOUTUBE_OFFICIAL_CHANNEL_IDS",
             "GOOGLE_CLOUD_VISION_API_KEY",
+            "FOOTPULSE_DOTENV_OVERRIDE",
         ):
             monkeypatch.delenv(key, raising=False)
 
@@ -60,3 +62,27 @@ def test_local_dotenv_can_be_disabled(tmp_path, monkeypatch) -> None:
 
     assert loaded == ()
     assert Settings.from_env(dotenv).llm_provider == "mock"
+
+
+def test_dotenv_can_override_stale_process_env_when_explicit(
+    tmp_path, monkeypatch
+) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "\n".join(
+            [
+                "FOOTPULSE_DOTENV_OVERRIDE=true",
+                "LLM_PROVIDER=deepseek",
+                "DEEPSEEK_API_KEY=fresh-dotenv-key",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "stale-process-key")
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("FOOTPULSE_DOTENV_OVERRIDE", raising=False)
+
+    settings = Settings.from_env(dotenv)
+
+    assert settings.deepseek_api_key == "fresh-dotenv-key"
+    assert settings.llm_provider == "deepseek"
