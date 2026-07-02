@@ -92,6 +92,14 @@ confidence = source_prior
 - 不长篇复述受版权保护的表达；摘要应具有转换性并链接原文。
 - 图片、队徽、赛事标识和视频需要单独的授权登记。
 
+### 媒体资产
+
+- Wikimedia Commons 图片必须读取 `LicenseShortName`、作者、Credit 和文件页；只接受 CC BY、CC0 或 Public Domain 家族。许可合格不等于画面相关，未经视觉或人工确认时显示“相关性待人工确认”。
+- YouTube 只保存官方频道白名单内可嵌入视频的 ID、标题、缩略图和外链；不下载或重新托管视频。
+- Sportmonks `image_path` 和赛事媒体是否可展示取决于订阅合同，不因 API 返回 URL 就自动获得再分发权。
+- 新闻正文中的摄影图片、社媒截图和精彩片段默认不可复用，除非 Source Registry 有明确许可记录。
+- GIF、比赛动图和短视频片段默认视为未批准素材；未完成 Source Registry 登记、版权条款和频率/缓存策略前，增强层只能生成“人工补充”提示，不得自动抓取或嵌入。
+
 ## 8. 推荐接入顺序
 
 ### 世界杯事实数据
@@ -102,14 +110,18 @@ confidence = source_prior
 
 ### 新闻发现
 
-1. 媒体/俱乐部官方 RSS 与 API。
-2. 商业新闻检索 API（生产套餐）。
+1. 媒体/俱乐部官方 RSS 与 API。当前开发源包括 Guardian Football RSS 与 BBC Sport Football RSS；只保存元数据和短摘录，并链接原文。
+2. 商业新闻检索 API（生产套餐）。NewsAPI.org 适合快速补英文媒体广度；NewsAPI.ai / Event Registry 更适合事件聚类、实体识别和跨语言去重。
 3. GDELT 用于多语言线索发现，不自动视为事实来源。
 4. 允许抓取的站点适配器作为补充，并设置低频与缓存。
 
 ### 建模研究
 
 StatsBomb Open Data 可用于历史研究，使用时遵守其署名和许可要求；实时世界杯数据需另行确认。
+
+### 人物与比赛事件增强
+
+生产建议使用 Sportmonks 等授权服务补球员赛季数据、转会关系、进球者、分钟、比分变化和阵容。新闻摘要只能作为叙事证据，不能替代结构化赛果事件。
 
 ## 9. 报告导出前检查清单
 
@@ -128,5 +140,10 @@ StatsBomb Open Data 可用于历史研究，使用时遵守其署名和许可要
 - [FIFA 男足世界排名](https://inside.fifa.com/fifa-world-ranking/men)
 - [football-data.org v4 文档](https://docs.football-data.org/general/v4/index.html)
 - [NewsAPI 文档](https://newsapi.org/docs)
+- [NewsAPI.ai / Event Registry](https://newsapi.ai/)
 - [GDELT DOC 2.0](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/)
 - [StatsBomb Open Data](https://github.com/statsbomb/open-data)
+- [Sportmonks Football API v3](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints)
+- [API-Football 文档](https://www.api-football.com/documentation-v3)
+- [YouTube Data API search.list](https://developers.google.com/youtube/v3/docs/search/list)
+- [Wikimedia Commons API](https://commons.wikimedia.org/wiki/Commons:API)

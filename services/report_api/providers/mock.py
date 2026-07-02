@@ -7,11 +7,138 @@ class MockProvider:
     """Deterministic, clearly labelled demo provider for local product work."""
 
     async def generate_json(self, request: LLMRequest) -> LLMResult:
+        if request.purpose == "research_plan":
+            return LLMResult(
+                output={
+                    "queries": [
+                        {
+                            "query": "FIFA World Cup football transfer news today",
+                            "purpose": "match_news",
+                            "sources": ["rss", "gdelt", "newsapi"],
+                        },
+                        {
+                            "query": "World Cup match preview team news prediction",
+                            "purpose": "prediction_context",
+                            "sources": ["gdelt", "newsapi"],
+                        },
+                    ],
+                    "min_items": 1,
+                    "allow_discovery_only": True,
+                },
+                provider="mock",
+                model=request.model,
+            )
+        if request.purpose == "evidence_refinement":
+            candidate_ids = request.metadata.get("candidate_ids") or []
+            return LLMResult(
+                output={
+                    "items": [
+                        {
+                            "source_evidence_id": evidence_id,
+                            "title": "Mock 精简资料",
+                            "concise_summary": (
+                                "mock 模式下的资料精简结果；真实模式会压缩标题、"
+                                "短摘录、时间和来源状态。"
+                            ),
+                            "key_points": ["保留来源边界", "不新增事实"],
+                        }
+                        for evidence_id in candidate_ids[:8]
+                    ],
+                    "warnings": ["当前为 mock 资料精简。"],
+                },
+                provider="mock",
+                model=request.model,
+            )
+        if request.purpose == "enhancement_plan":
+            return LLMResult(
+                output={
+                    "needs": [],
+                    "warnings": ["mock 模式不自动调用外部增强工具。"],
+                },
+                provider="mock",
+                model=request.model,
+            )
         report_type = request.metadata["report_type"]
         evidence_id = request.metadata["evidence_ids"][0]
         subject = request.metadata["subject"]
 
+        if request.purpose.startswith("daily_research:"):
+            desk = request.metadata["desk"]
+            return LLMResult(
+                output={
+                    "desk": desk,
+                    "key_items": [
+                        {
+                            "claim": "演示研究条目",
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "rumor_items": [],
+                    "conflicts": [],
+                    "unknowns": ["mock 模式没有实时研究资料"],
+                },
+                provider="mock",
+                model=request.model,
+            )
+
+        if request.purpose.startswith("daily_desk_write:"):
+            desk = request.metadata["desk"]
+            return LLMResult(
+                output={
+                    "desk": desk,
+                    "heading": "赛场脉搏" if desk == "match_news" else "转会雷达",
+                    "summary": "这是经过独立研究桌整理的演示栏目。",
+                    "sections": [
+                        {
+                            "heading": "今日要点",
+                            "body": "正式模式会保留证据等级并区分事实与传闻。",
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "warnings": ["当前为 mock 演示。"],
+                },
+                provider="mock",
+                model=request.model,
+            )
+
+        if request.purpose.startswith("prediction_opinion:"):
+            role = request.metadata["opinion_role"]
+            return LLMResult(
+                output={
+                    "role": role,
+                    "home_win": 0.4,
+                    "draw": 0.3,
+                    "away_win": 0.3,
+                    "key_claims": [
+                        {
+                            "claim": "演示分析席位，仅用于验证流程",
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                    "unknowns": ["mock 模式没有真实球队上下文"],
+                    "confidence": "low",
+                },
+                provider="mock",
+                model=request.model,
+            )
+
         templates = {
+            "daily_football_digest": {
+                "summary": (
+                    "这是一份今日球脉演示，将赛事动态与转会市场分桌研究，"
+                    "再合并为一份有来源、有传闻等级的每日足球情报。"
+                ),
+                "sections": [
+                    (
+                        "赛场与赛事脉搏",
+                        "整理赛果、赛程、球队动态与今日观赛重点。",
+                    ),
+                    (
+                        "转会市场雷达",
+                        "同时保留官宣、实质进展与明确标注的未核实传闻。",
+                    ),
+                ],
+            },
             "world_cup_daily": {
                 "summary": (
                     "这是一份世界杯日报演示。正式版本将把官方赛果、晋级形势与"
@@ -95,6 +222,20 @@ class MockProvider:
                     else None
                 ),
                 "scorelines": ["1-0", "1-1", "0-1"],
+                "analysis_process": [
+                    {
+                        "claim": "先读取证据包中的赛前信息，确认当前只是演示上下文。",
+                        "evidence_ids": [evidence_id],
+                    },
+                    {
+                        "claim": "再平衡支持因素和反方因素，所以概率保持低置信度。",
+                        "evidence_ids": [evidence_id],
+                    },
+                    {
+                        "claim": "最后把未知项保留在报告中，不给出确定比分。",
+                        "evidence_ids": [evidence_id],
+                    },
+                ],
                 "supporting_factors": [
                     {"claim": "演示支持因素", "evidence_ids": [evidence_id]}
                 ],

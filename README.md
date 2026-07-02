@@ -1,16 +1,25 @@
 # Football AI Harness Loop
 
-面向中文足球用户与内容创作者的可信 AI 报告工作台。项目以 **Harness（可靠性运行时）** 包住模型，以 **Loop（可观测、可纠偏的闭环）** 驱动资料采集、报告生成和质量改进。
+面向球迷与足球内容创作者的可信 AI 报告生成器。公共页面只呈现世界杯日报、转会情报和比赛预测；证据检索、模型协作与质量门由后台 Agent Core 完成。
 
-当前阶段：MVP 纵向切片开发。
+V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AGENT_CORE_V3_REPORT.md)。
 
-已实现可运行的响应式工作台与 [Report API](services/report_api/README.md)。默认 mock 模式可在没有 API Key 的情况下跑通页面、Harness、质量门和报告返回；切换配置后调用 DeepSeek V4。
+当前阶段：可使用的本地 Beta。真实 RSS → DeepSeek V4 → 引用/概率质量门 → 编辑/导出闭环已跑通；商业上线仍需取得数据许可并接入第二独立来源。
+
+已实现可运行的响应式产品页与 [Report API](services/report_api/README.md)。默认 mock 模式用于开发测试；使用 `scripts/run_deepseek.ps1` 可安全输入密钥并启动真实研究模式，密钥不会写入 Git。若本地存在已被忽略的 `.env`，后端会自动读取 DeepSeek、Sportmonks、YouTube 等配置。
+
+```powershell
+.\scripts\run_deepseek.ps1
+# 浏览器打开 http://127.0.0.1:8000
+```
 
 ## 产品能力
 
 - 每日转会报告：聚合、去重、分级、交叉核验并返回带来源的中文报告。
 - 世界杯日报：整理赛果、焦点事件、球队动态和当日赛程，供用户二次编辑。
 - 比赛预测报告：用结构化数据与大模型研判生成概率、依据和风险提示。
+- 人物与比赛故事：在证据允许时补球员画像、关联球队、数据卡和进球时间线。
+- 许可媒体：展示带许可证/署名的 Commons 图片，并可接入官方频道可嵌入视频；不下载视频。
 - 导出：复制 Markdown/纯文本或下载 JSON；产品不自动发布社媒。
 
 ## 文档入口
@@ -23,7 +32,9 @@
 - [API-first 报告决策](docs/adr/0002-api-first-report-workbench.md)
 - [预测模型设计](docs/ml/MATCH_PREDICTION.md)
 - [数据源与内容合规](docs/data/SOURCE_POLICY.md)
+- [外部服务配置清单](docs/admin/EXTERNAL_SERVICE_SETUP.md)
 - [世界杯冲刺路线图](docs/product/ROADMAP.md)
+- [V4 严格产品评审与竞品差距](docs/product/V4_PRODUCT_REVIEW.md)
 - [研发协作规范](CONTRIBUTING.md)
 
 ## 原则

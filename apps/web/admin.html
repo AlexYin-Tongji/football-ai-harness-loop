@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="球脉 FootPulse 管理健康检查。" />
+    <title>球脉管理台｜连接器健康</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=9" />
+    <link rel="stylesheet" href="/assets/layout-fix.css?v=9" />
+    <link rel="stylesheet" href="/assets/admin.css?v=1" />
+    <script src="/assets/admin.js?v=1" defer></script>
+  </head>
+  <body class="admin-body">
+    <main class="admin-shell">
+      <a class="brand admin-brand" href="/"><i>F</i><span>球脉<small>ADMIN</small></span></a>
+      <section class="admin-hero">
+        <p class="kicker dark">CONNECTOR HEALTH</p>
+        <h1>别让“已配 key”变成黑箱。</h1>
+        <p>输入管理员令牌后，系统会探测 Sportmonks 五大联赛覆盖、NewsAPI 可用性、视频白名单和视觉核验配置。页面不会保存令牌。</p>
+      </section>
+
+      <form class="admin-token" id="admin-form">
+        <label><span>管理员令牌</span><input id="admin-token" type="password" autocomplete="off" required /></label>
+        <button class="generate" type="submit"><span>检查连接器</span><b>→</b></button>
+        <p class="form-error" id="admin-error" role="alert"></p>
+      </form>
+
+      <section class="admin-health" id="admin-health" hidden></section>
+    </main>
+  </body>
+</html>

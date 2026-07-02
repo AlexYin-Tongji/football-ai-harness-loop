@@ -1,13 +1,12 @@
 {
   "id": "world-cup-daily",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "report_type": "world_cup_daily",
-  "max_model_rounds": 4,
-  "max_tool_rounds": 6,
-  "phases": ["match_data", "discover", "extract_rank", "compose", "review"],
-  "mcp_servers": ["football-data", "news-evidence", "source-registry"],
-  "memory_read": ["user_preferences", "source_reliability", "previous_daily_report"],
-  "memory_write": ["run_summary", "previous_daily_report", "user_feedback"],
-  "quality_gates": ["official_score_check", "timezone_check", "source_coverage", "privacy"]
+  "max_model_rounds": 3,
+  "max_tool_rounds": 7,
+  "phases": ["url_collection", "evidence_refinement", "enhancement", "writing_handoff", "draft", "validate", "human_review"],
+  "mcp_servers": ["source-registry", "football-data", "rss-news", "news-discovery"],
+  "memory_read": ["source_reliability", "published_story_index"],
+  "memory_write": ["run_summary", "story_clusters", "report_version"],
+  "quality_gates": ["cutoff_integrity", "official_result_check", "citation_integrity", "duplicate_story", "privacy"]
 }
-

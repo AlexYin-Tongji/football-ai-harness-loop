@@ -3,245 +3,80 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="球脉 FootPulse AI：可信足球报告工作台"
-    />
-    <title>球脉 FootPulse AI</title>
-    <link rel="stylesheet" href="/assets/styles.css" />
-    <script src="/assets/app.js" defer></script>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2306101e'/%3E%3Cpath d='M18 14h31v9H29v8h17v9H29v15H18z' fill='%23d7ff45'/%3E%3C/svg%3E" />
+    <meta name="description" content="球脉 FootPulse，用可信证据生成你的每日足球报告。" />
+    <title>球脉 FootPulse AI｜看懂今天的足球</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=8" />
+    <link rel="stylesheet" href="/assets/layout-fix.css?v=8" />
+    <script src="/assets/app.js?v=8" defer></script>
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <a class="brand" href="/" aria-label="球脉首页">
-          <span class="brand-mark">FP</span>
-          <span>
-            <strong>球脉</strong>
-            <small>FOOTPULSE AI</small>
-          </span>
-        </a>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="球脉首页"><i>F</i><span>球脉<small>FOOTPULSE</small></span></a>
+      <nav aria-label="主导航"><a href="#today">今日球脉</a><a href="#create">预测</a></nav>
+      <a class="header-action" href="#create">生成我的报告</a>
+    </header>
 
-        <nav class="main-nav" aria-label="主导航">
-          <a class="nav-item active" href="#create">
-            <span>＋</span> 新建报告
-          </a>
-          <a class="nav-item" href="#result"><span>▤</span> 报告预览</a>
-          <a class="nav-item" href="#runs"><span>◷</span> 运行记录</a>
-          <a class="nav-item" href="#harness"><span>⌘</span> Harness</a>
-        </nav>
-
-        <div class="sidebar-spacer"></div>
-        <div class="privacy-card">
-          <span class="privacy-icon">◆</span>
-          <div>
-            <strong>隐私模式</strong>
-            <p>密钥仅留在后端，不进入页面与 Git。</p>
-          </div>
+    <main id="top">
+      <section class="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content">
+          <p class="kicker">2026 WORLD CUP · DAILY INTELLIGENCE</p>
+          <h1>不追逐噪声。<br /><em>看懂今天的足球。</em></h1>
+          <p class="hero-lead">从赛果、官方消息到转会风向，把散落的信息变成一份清楚、可追溯、由你决定如何发布的报告。</p>
+          <div class="hero-actions"><a class="button primary" href="#create">开始生成 <span>→</span></a><a class="button ghost" href="#today">看看能做什么</a></div>
+          <div class="trust-line"><span>✓ 每条事实可追溯</span><span>✓ 赛前概率有边界</span><span>✓ 永不替你自动发布</span></div>
         </div>
-        <p class="version">V2 · WORKBENCH PREVIEW</p>
-      </aside>
+        <div class="hero-score" aria-label="今日足球脉搏">
+          <span class="live"><i></i> WORLD CUP NOW</span>
+          <div class="orb"><b>90'</b><small>THE WORLD<br />IS WATCHING</small></div>
+          <div class="score-foot"><span>今日情报</span><strong>2</strong><span>种报告</span></div>
+        </div>
+      </section>
 
-      <main class="main-content">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">REPORT WORKBENCH</p>
-            <h1>早上好，今天想研究什么？</h1>
-          </div>
-          <div class="system-status" aria-live="polite">
-            <span class="status-dot"></span>
-            <span id="provider-status">正在读取系统状态</span>
-          </div>
-        </header>
+      <section class="editorial-strip" id="today">
+        <p>THE DAILY PULSE</p><h2>一份报告，抓住今天真正重要的变化。</h2><span>北京时间 · 每日更新</span>
+      </section>
 
-        <section class="hero-panel" id="create">
-          <div class="hero-copy">
-            <span class="hero-kicker">2026 WORLD CUP INTELLIGENCE</span>
-            <h2>把散乱的足球信息，整理成一份可信的报告。</h2>
-            <p>
-              选择任务，Harness 会装载对应 Skill、证据和质量门。你得到报告，
-              再按自己的风格发布。
-            </p>
-          </div>
-          <div class="hero-orbit" aria-hidden="true">
-            <span class="orbit-ring"></span>
-            <span class="orbit-ball">●</span>
-            <span class="orbit-label">EVIDENCE<br />FIRST</span>
-          </div>
-        </section>
+      <section class="create-section" id="create">
+        <div class="section-intro"><p class="kicker dark">CREATE YOUR REPORT</p><h2>今天，你想先看什么？</h2><p>选择一种报告，给它一个主题。其余的信息整理、交叉核验与写作，由球脉完成。</p></div>
 
-        <section class="section-block">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">STEP 01</p>
-              <h2>选择报告类型</h2>
-            </div>
-            <span class="section-note">一次提交，一份完整报告</span>
-          </div>
+        <div class="report-selector" role="radiogroup" aria-label="报告类型">
+          <button class="report-card selected" type="button" role="radio" aria-checked="true" data-report-type="daily_football_digest">
+            <span class="number">01</span><i class="card-icon">◎</i><strong>今日球脉</strong><small>赛事、观赛重点、转会进展与传闻</small><b>今日推荐</b>
+          </button>
+          <button class="report-card" type="button" role="radio" aria-checked="false" data-report-type="match_prediction">
+            <span class="number">02</span><i class="card-icon">◒</i><strong>比赛预测</strong><small>自有判断、外部观点、概率与未知项</small>
+          </button>
+        </div>
 
-          <div class="report-types" role="radiogroup" aria-label="报告类型">
-            <button
-              class="report-type selected"
-              type="button"
-              role="radio"
-              aria-checked="true"
-              data-report-type="world_cup_daily"
-            >
-              <span class="type-index">01</span>
-              <span class="type-icon lime">◎</span>
-              <strong>世界杯日报</strong>
-              <small>赛果、晋级形势、球队消息与今日看点</small>
-              <span class="type-meta">4 个模型轮次上限</span>
-            </button>
-            <button
-              class="report-type"
-              type="button"
-              role="radio"
-              aria-checked="false"
-              data-report-type="transfer_daily"
-            >
-              <span class="type-index">02</span>
-              <span class="type-icon coral">↗</span>
-              <strong>每日转会报告</strong>
-              <small>去重、阶段变化、来源分级与冲突核验</small>
-              <span class="type-meta">5 个模型轮次上限</span>
-            </button>
-            <button
-              class="report-type"
-              type="button"
-              role="radio"
-              aria-checked="false"
-              data-report-type="match_prediction"
-            >
-              <span class="type-index">03</span>
-              <span class="type-icon blue">∿</span>
-              <strong>比赛预测报告</strong>
-              <small>概率判断、正反证据、比分区间与未知项</small>
-              <span class="type-meta">4 个模型轮次上限</span>
-            </button>
-          </div>
-        </section>
-
-        <section class="workspace-grid">
-          <form class="generator-card" id="report-form">
-            <div class="section-heading compact">
-              <div>
-                <p class="eyebrow">STEP 02</p>
-                <h2>定义这份报告</h2>
-              </div>
-              <span class="model-chip">AUTO · V4 PRO</span>
-            </div>
-
-            <label class="field wide">
-              <span>报告主题</span>
-              <input
-                id="subject"
-                name="subject"
-                type="text"
-                maxlength="300"
-                value="世界杯每日观察｜淘汰赛焦点与今日看点"
-                required
-              />
-            </label>
-
+        <form class="creator" id="report-form">
+          <div class="creator-copy"><span>YOUR BRIEF</span><h3>告诉球脉你关心的主题</h3><p id="brief-hint">适合整理过去 24 小时的赛果、晋级变化和今日重点比赛。</p><div class="readiness" id="readiness"><i></i><b>正在检查实时服务</b></div></div>
+          <div class="creator-fields">
+              <label><span>报告主题</span><input id="subject" maxlength="300" value="今日球脉｜世界杯与夏季转会窗" required /></label>
             <div class="field-row">
-              <label class="field">
-                <span>报告日期</span>
-                <input id="report-date" name="report-date" type="date" required />
-              </label>
-              <label class="field">
-                <span>篇幅</span>
-                <select id="length" name="length">
-                  <option value="concise">精简 · 3 分钟</option>
-                  <option value="standard" selected>标准 · 6 分钟</option>
-                  <option value="deep">深度 · 10 分钟</option>
-                </select>
-              </label>
+              <label><span>报告日期</span><input id="report-date" type="date" required /></label>
+              <label><span>阅读长度</span><select id="length"><option value="concise">精简 · 3 分钟</option><option value="standard" selected>标准 · 6 分钟</option><option value="deep">深度 · 10 分钟</option></select></label>
             </div>
-
-            <label class="field wide" id="match-stage-field" hidden>
-              <span>比赛阶段</span>
-              <select id="match-stage" name="match-stage">
-                <option value="group">小组赛</option>
-                <option value="knockout" selected>淘汰赛</option>
-              </select>
-            </label>
-
-            <label class="field wide">
-              <span>关注重点 <em>用逗号分隔</em></span>
-              <input
-                id="focus"
-                name="focus"
-                type="text"
-                value="昨日赛果, 晋级形势, 今日看点"
-              />
-            </label>
-
-            <div class="submit-row">
-              <div class="safety-note">
-                <span>✓</span>
-                <p>不会自动发布社媒；生成后由你审核和导出。</p>
-              </div>
-              <button class="primary-button" id="generate-button" type="submit">
-                <span>生成报告</span><b>→</b>
-              </button>
-            </div>
-            <p class="form-error" id="form-error" role="alert"></p>
-          </form>
-
-          <aside class="harness-card" id="harness">
-            <div class="harness-head">
-              <div>
-                <p class="eyebrow light">LIVE HARNESS</p>
-                <h2>这次任务如何运行</h2>
-              </div>
-              <span class="pulse"></span>
-            </div>
-            <div class="budget-grid">
-              <div><strong id="model-budget">4</strong><span>模型轮次上限</span></div>
-              <div><strong id="tool-budget">6</strong><span>工具轮次上限</span></div>
-            </div>
-            <ol class="harness-steps" id="harness-steps">
-              <li class="active"><span>1</span><div><strong>路由 Skill</strong><small>world-cup-daily</small></div></li>
-              <li><span>2</span><div><strong>构建上下文</strong><small>只装载带时间证据</small></div></li>
-              <li><span>3</span><div><strong>生成报告</strong><small>DeepSeek V4-Pro</small></div></li>
-              <li><span>4</span><div><strong>质量检查</strong><small>引用、时点、概率</small></div></li>
-              <li><span>5</span><div><strong>写入检查点</strong><small>安全运行摘要</small></div></li>
-            </ol>
-            <div class="memory-strip">
-              <span>MEMORY</span>
-              <p>当前：运行状态 · Skill 版本｜规划：用户偏好 · 证据图谱</p>
-            </div>
-          </aside>
-        </section>
-
-        <section class="result-card" id="result" hidden>
-          <div class="result-toolbar">
-            <div>
-              <p class="eyebrow">GENERATED REPORT</p>
-              <div class="result-meta" id="result-meta"></div>
-            </div>
-            <div class="toolbar-actions">
-              <button type="button" class="secondary-button" id="copy-report">复制文本</button>
-              <button type="button" class="secondary-button" id="download-report">下载 JSON</button>
-            </div>
+            <label id="match-stage-field" hidden><span>比赛阶段</span><select id="match-stage"><option value="group">小组赛</option><option value="knockout" selected>淘汰赛</option></select></label>
+            <label><span>特别关注 <small>可选，用逗号分隔</small></span><input id="focus" value="世界杯, 今日看点, 转会进展, 绯闻雷达" /></label>
+            <button class="generate" id="generate-button" type="submit"><span>生成我的报告</span><b>→</b></button>
+            <div class="research-progress" id="research-progress" hidden><span class="active">URL 收集</span><span>资料精简</span><span>增强补采</span><span>撰写整合</span><span>引用与概率校验</span></div>
+            <p class="fine-print">AI 会整理证据并给出初稿；发布前请由你核验和编辑。</p><p class="form-error" id="form-error" role="alert"></p>
           </div>
-          <article id="report-output"></article>
-        </section>
+        </form>
+      </section>
 
-        <section class="runs-section" id="runs">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">RECENT RUNS</p>
-              <h2>最近的 Harness 运行</h2>
-            </div>
-            <span class="section-note">V2 暂存于当前进程</span>
-          </div>
-          <div class="runs-list" id="runs-list">
-            <p class="empty-state">生成第一份报告后，这里会显示检查点和轮次。</p>
-          </div>
-        </section>
-      </main>
-    </div>
+      <section class="result" id="result" hidden>
+        <div class="result-head"><div><p class="kicker dark">YOUR REPORT</p><span id="result-meta"></span></div><div><button id="edit-report" type="button">编辑报告</button><button id="copy-report" type="button">复制全文</button><button id="download-report" type="button">保存报告</button></div></div>
+        <article id="report-output"></article>
+      </section>
+
+      <section class="promise">
+        <p class="kicker">THE FOOTPULSE PROMISE</p><h2>让 AI 做繁琐的整理，<br />把判断和表达留给你。</h2>
+        <div><span><b>01</b><strong>来源透明</strong><small>报告中的事实都能回到原始来源。</small></span><span><b>02</b><strong>承认未知</strong><small>预测呈现反方证据，不伪装成确定答案。</small></span><span><b>03</b><strong>你来发布</strong><small>没有社媒账号，没有自动发布，始终由你把关。</small></span></div>
+      </section>
+    </main>
+    <footer><a class="brand light" href="#top"><i>F</i><span>球脉<small>FOOTPULSE</small></span></a><p>为认真看球的人，整理今天的足球。</p><span>AI 生成内容仅供参考</span></footer>
   </body>
 </html>
