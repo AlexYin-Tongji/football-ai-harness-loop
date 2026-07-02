@@ -678,6 +678,60 @@ def _annotate_story_clusters(items: list[Evidence]) -> None:
                 member.summary = _clean_text(f"{cluster_note}{member.summary}", 4000)
 
 
+def finish_evidence_selection(
+    request: ConsumerReportRequest, combined: list[Evidence], *, max_items: int
+) -> list[Evidence]:
+    unique: list[Evidence] = []
+    seen: set[str] = set()
+    subject_terms = [
+        term
+        for term in _terms(request)
+        if term
+        not in {
+            "world cup",
+            "fifa",
+            "football",
+            "team news",
+            "injury",
+            "transfer",
+            "signing",
+            "signs",
+            "target",
+            "deal",
+        }
+    ]
+
+    def relevance(item: Evidence) -> tuple[int, datetime]:
+        text = f"{item.title} {item.summary}".casefold()
+        score = sum(4 for term in subject_terms if term in text)
+        if item.verification_status != "unverified_lead":
+            score += 3
+        if request.report_type == ReportType.MATCH_PREDICTION and re.search(
+            r"opta|probability|prediction|preview|tactics|lineup|injury", text
+        ):
+            score += 3
+        if request.report_type in {
+            ReportType.TRANSFER_DAILY,
+            ReportType.DAILY_FOOTBALL_DIGEST,
+        } and re.search(
+            r"transfer|signing|signs|bid|deal|target|medical|agreement", text
+        ):
+            score += 2
+        return score, item.published_at
+
+    for item in sorted(combined, key=relevance, reverse=True):
+        canonical = str(item.url).split("#", 1)[0]
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        unique.append(item)
+        if len(unique) >= max_items:
+            break
+    _cluster_evidence(unique)
+    _annotate_story_clusters(unique)
+    return unique
+
+
 async def collect_research_evidence(
     request: ConsumerReportRequest, *, max_items: int = 24
 ) -> list[Evidence]:
@@ -705,52 +759,7 @@ async def collect_research_evidence(
             continue
         combined.extend(result)
 
-    unique: list[Evidence] = []
-    seen: set[str] = set()
-    subject_terms = [
-        term
-        for term in _terms(request)
-        if term
-        not in {
-            "world cup",
-            "fifa",
-            "football",
-            "team news",
-            "injury",
-            "transfer",
-            "signing",
-            "signs",
-            "target",
-            "deal",
-        }
-    ]
-
-    def relevance(item: Evidence) -> tuple[int, datetime]:
-        text = f"{item.title} {item.summary}".casefold()
-        score = sum(4 for term in subject_terms if term in text)
-        if request.report_type == ReportType.MATCH_PREDICTION and re.search(
-            r"opta|probability|prediction|preview|tactics|lineup|injury", text
-        ):
-            score += 3
-        if request.report_type in {
-            ReportType.TRANSFER_DAILY,
-            ReportType.DAILY_FOOTBALL_DIGEST,
-        } and re.search(
-            r"transfer|signing|signs|bid|deal|target|medical|agreement", text
-        ):
-            score += 2
-        return score, item.published_at
-
-    for item in sorted(combined, key=relevance, reverse=True):
-        canonical = str(item.url).split("#", 1)[0]
-        if canonical in seen:
-            continue
-        seen.add(canonical)
-        unique.append(item)
-        if len(unique) >= max_items:
-            break
-    _cluster_evidence(unique)
-    _annotate_story_clusters(unique)
+    unique = finish_evidence_selection(request, combined, max_items=max_items)
     if len(unique) < 2:
         raise EvidenceCollectionError(
             "没有找到足够的近期资料，请写明球队英文名或更具体的主题"

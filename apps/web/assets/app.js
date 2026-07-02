@@ -46,6 +46,23 @@ const defaults = {
   },
 };
 
+const progressLabels = {
+  daily_football_digest: [
+    "URL 收集",
+    "资料精简",
+    "增强补采",
+    "撰写整合",
+    "引用与质量校验",
+  ],
+  match_prediction: [
+    "URL 收集",
+    "资料精简",
+    "增强补采",
+    "多席预测",
+    "引用与概率校验",
+  ],
+};
+
 let selected = "daily_football_digest";
 let latest = null;
 let latestUsedEvidence = [];
@@ -69,6 +86,14 @@ function choose(type) {
   ui.focus.value = defaults[type].focus;
   ui.hint.textContent = defaults[type].hint;
   ui.stageField.hidden = type !== "match_prediction";
+  refreshProgressLabels();
+}
+
+function refreshProgressLabels() {
+  const labels = progressLabels[selected] || progressLabels.daily_football_digest;
+  [...ui.progress.querySelectorAll("span")].forEach((step, index) => {
+    step.textContent = labels[index] || labels[labels.length - 1];
+  });
 }
 
 function requestPayload() {
@@ -105,6 +130,33 @@ function predictionView(prediction) {
     grid.append(cell);
   });
   block.append(grid);
+  const summary = el("div", "prediction-summary-row");
+  summary.append(
+    el("span", "", `可能比分：${prediction.scorelines?.join(" / ") || "未给出"}`),
+    el("span", "", `置信度：${{ low: "低", medium: "中", high: "高" }[prediction.confidence] || prediction.confidence}`),
+  );
+  if (prediction.qualification) {
+    summary.append(
+      el(
+        "span",
+        "",
+        `晋级倾向：主队 ${Math.round(prediction.qualification.home * 100)}% · 客队 ${Math.round(prediction.qualification.away * 100)}%`,
+      ),
+    );
+  }
+  block.append(summary);
+  const analysis = factorPanel("分析过程", prediction.analysis_process);
+  if (analysis) block.append(analysis);
+  const support = factorPanel("支持因素", prediction.supporting_factors);
+  if (support) block.append(support);
+  const counter = factorPanel("反方证据", prediction.counter_factors);
+  if (counter) block.append(counter);
+  if (prediction.unknowns?.length) {
+    const unknowns = el("div", "prediction-detail");
+    unknowns.append(el("h4", "", "未知项"));
+    prediction.unknowns.forEach((item) => unknowns.append(el("p", "", item)));
+    block.append(unknowns);
+  }
   if (prediction.statistical_baseline) {
     const baseline = prediction.statistical_baseline;
     const baselineRow = el("div", "statistical-baseline");
@@ -141,8 +193,26 @@ function predictionView(prediction) {
       comparisons.append(row);
     });
     block.append(comparisons);
+  } else {
+    const empty = el("div", "external-predictions empty");
+    empty.append(
+      el("h4", "", "外部观点对照"),
+      el("p", "", "当前证据中没有可引用的外部公开预测；系统不会补造 Opta、FIFA 或媒体概率。"),
+    );
+    block.append(empty);
   }
   return block;
+}
+
+function factorPanel(title, factors) {
+  if (!factors?.length) return null;
+  const panel = el("div", "prediction-detail");
+  panel.append(el("h4", "", title));
+  factors.forEach((factor) => {
+    const row = el("p", "", factor.claim);
+    panel.append(row);
+  });
+  return panel;
 }
 
 function enrichmentView(enrichment) {
@@ -332,20 +402,94 @@ function render(data) {
 
 function reportAsText() {
   if (!latest) return "";
+  const report = latest.report.report;
   const title = ui.output.querySelector('[data-export="title"]')?.innerText || "";
   const summary =
     ui.output.querySelector('[data-export="summary"]')?.innerText || "";
   const lines = [`# ${title}`, "", summary, ""];
+  appendPredictionText(lines, report.prediction);
+  appendEnrichmentText(lines, report.enrichment);
   ui.output.querySelectorAll("[data-section]").forEach((section) => {
     const heading = section.querySelector('[data-export="heading"]')?.innerText;
     const body = section.querySelector('[data-export="body"]')?.innerText;
     lines.push(`## ${heading}`, "", body, "");
   });
+  if (report.warnings?.length) {
+    lines.push("## 发布前请复核", "");
+    report.warnings.forEach((item) => lines.push(`- ${item}`));
+    lines.push("");
+  }
   lines.push("## 来源", "");
   latestUsedEvidence.forEach((item) =>
     lines.push(`- ${item.title}：${item.url}`),
   );
   return lines.join("\n");
+}
+
+function appendPredictionText(lines, prediction) {
+  if (!prediction) return;
+  lines.push("## 球脉综合预测", "");
+  lines.push(
+    `- 90 分钟：主胜 ${Math.round(prediction.home_win * 100)}%，平局 ${Math.round(prediction.draw * 100)}%，客胜 ${Math.round(prediction.away_win * 100)}%`,
+  );
+  if (prediction.qualification) {
+    lines.push(
+      `- 晋级倾向：主队 ${Math.round(prediction.qualification.home * 100)}%，客队 ${Math.round(prediction.qualification.away * 100)}%`,
+    );
+  }
+  lines.push(`- 可能比分：${prediction.scorelines?.join(" / ") || "未给出"}`);
+  lines.push(`- 置信度：${prediction.confidence}`);
+  if (prediction.statistical_baseline) {
+    const baseline = prediction.statistical_baseline;
+    lines.push(
+      `- 统计基线：${baseline.method}，主胜 ${Math.round(baseline.home_win * 100)}%，平 ${Math.round(baseline.draw * 100)}%，客胜 ${Math.round(baseline.away_win * 100)}%`,
+    );
+  }
+  appendFactors(lines, "分析过程", prediction.analysis_process);
+  appendFactors(lines, "支持因素", prediction.supporting_factors);
+  appendFactors(lines, "反方证据", prediction.counter_factors);
+  if (prediction.unknowns?.length) {
+    lines.push("", "### 未知项");
+    prediction.unknowns.forEach((item) => lines.push(`- ${item}`));
+  }
+  if (prediction.external_predictions?.length) {
+    lines.push("", "### 外部观点对照");
+    prediction.external_predictions.forEach((item) => {
+      lines.push(`- ${item.source_name}：${item.summary}`);
+    });
+  }
+  lines.push("");
+}
+
+function appendFactors(lines, title, factors) {
+  if (!factors?.length) return;
+  lines.push("", `### ${title}`);
+  factors.forEach((item) => lines.push(`- ${item.claim}`));
+}
+
+function appendEnrichmentText(lines, enrichment) {
+  if (!enrichment) return;
+  if (enrichment.player_spotlights?.length) {
+    lines.push("## 人物与球队关联", "");
+    enrichment.player_spotlights.forEach((item) => {
+      lines.push(`- ${item.name}：${item.narrative}`);
+    });
+    lines.push("");
+  }
+  if (enrichment.match_timeline?.length) {
+    lines.push("## 比赛时间线", "");
+    enrichment.match_timeline.forEach((item) => {
+      lines.push(`- ${item.minute}' ${item.description}${item.score_after ? `（${item.score_after}）` : ""}`);
+    });
+    lines.push("");
+  }
+  if (enrichment.media_assets?.length) {
+    lines.push("## 相关影像", "");
+    enrichment.media_assets.forEach((item) => {
+      lines.push(`- ${item.title}：${item.url}（${item.provider} · ${item.license} · ${item.attribution}）`);
+    });
+    lines.push("");
+  }
 }
 
 function startProgress() {
@@ -455,4 +599,5 @@ ui.download.addEventListener("click", () => {
 const now = new Date();
 const offset = now.getTimezoneOffset() * 60_000;
 ui.date.value = new Date(now.getTime() - offset).toISOString().slice(0, 10);
+refreshProgressLabels();
 loadStatus();

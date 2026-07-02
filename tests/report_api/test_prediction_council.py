@@ -8,7 +8,7 @@ from services.report_api.service import ReportService
 from tests.report_api.test_service import request_payload
 
 
-def test_prediction_council_uses_two_analysts_and_a_judge() -> None:
+def test_prediction_council_uses_three_analysts_and_a_judge() -> None:
     service = ReportService(
         provider=MockProvider(),
         model="deepseek-v4-pro",
@@ -18,7 +18,7 @@ def test_prediction_council_uses_two_analysts_and_a_judge() -> None:
 
     result = asyncio.run(service.generate(request_payload()))
 
-    assert result.attempts == 3
+    assert result.attempts == 4
     assert result.report.prediction is not None
     assert result.report.prediction.confidence == "low"
 
@@ -40,5 +40,5 @@ def test_prediction_council_degrades_when_one_seat_fails() -> None:
 
     result = asyncio.run(service.generate(request_payload()))
 
-    assert result.attempts == 2
+    assert result.attempts == 3
     assert result.report.prediction is not None

@@ -67,6 +67,21 @@ class MatchModelContext(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
 
 
+class MediaAsset(BaseModel):
+    asset_type: Literal["image", "video"]
+    title: str = Field(min_length=1, max_length=300)
+    url: HttpUrl
+    thumbnail_url: HttpUrl | None = None
+    provider: str = Field(min_length=1, max_length=120)
+    license: str = Field(min_length=1, max_length=120)
+    attribution: str = Field(min_length=1, max_length=500)
+    rights_status: Literal["approved", "review_required"]
+    relevance_status: Literal["visual_match", "metadata_match", "uncertain"] = (
+        "uncertain"
+    )
+    relevance_reason: str | None = Field(default=None, max_length=500)
+
+
 class ReportRequest(BaseModel):
     report_type: ReportType
     subject: str = Field(min_length=1, max_length=300)
@@ -77,6 +92,10 @@ class ReportRequest(BaseModel):
     match_stage: MatchStage | None = None
     evidence: list[Evidence] = Field(min_length=1, max_length=100)
     match_context: MatchModelContext | None = None
+    collection_warnings: list[str] = Field(default_factory=list, max_length=12)
+    prefetched_media_assets: list[MediaAsset] = Field(
+        default_factory=list, max_length=8
+    )
 
     @field_validator("data_cutoff")
     @classmethod
@@ -183,21 +202,6 @@ class MatchTimelineEvent(BaseModel):
     evidence_ids: list[str] = Field(min_length=1)
 
 
-class MediaAsset(BaseModel):
-    asset_type: Literal["image", "video"]
-    title: str = Field(min_length=1, max_length=300)
-    url: HttpUrl
-    thumbnail_url: HttpUrl | None = None
-    provider: str = Field(min_length=1, max_length=120)
-    license: str = Field(min_length=1, max_length=120)
-    attribution: str = Field(min_length=1, max_length=500)
-    rights_status: Literal["approved", "review_required"]
-    relevance_status: Literal["visual_match", "metadata_match", "uncertain"] = (
-        "uncertain"
-    )
-    relevance_reason: str | None = Field(default=None, max_length=500)
-
-
 class EditorialEnrichment(BaseModel):
     player_spotlights: list[PlayerSpotlight] = Field(default_factory=list, max_length=6)
     match_timeline: list[MatchTimelineEvent] = Field(
@@ -224,6 +228,7 @@ class MatchPrediction(BaseModel):
     away_win: float = Field(ge=0, le=1)
     qualification: QualificationProbability | None = None
     scorelines: list[str] = Field(min_length=1, max_length=3)
+    analysis_process: list[EvidenceFactor] = Field(default_factory=list, max_length=6)
     supporting_factors: list[EvidenceFactor] = Field(min_length=1)
     counter_factors: list[EvidenceFactor] = Field(min_length=1)
     unknowns: list[str] = Field(default_factory=list)
@@ -249,7 +254,7 @@ class TokenUsage(BaseModel):
 
 
 class PredictionOpinion(BaseModel):
-    role: Literal["form_analyst", "skeptic"]
+    role: Literal["form_analyst", "tactical_analyst", "skeptic"]
     home_win: float = Field(ge=0, le=1)
     draw: float = Field(ge=0, le=1)
     away_win: float = Field(ge=0, le=1)

@@ -6,9 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from secrets import compare_digest
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from services.report_api.admin import (
     AdminCatalog,
@@ -26,10 +27,7 @@ from services.report_api.domain import (
     ReportResponse,
     ReportType,
 )
-from services.report_api.evidence import (
-    EvidenceCollectionError,
-    collect_research_evidence,
-)
+from services.report_api.evidence import EvidenceCollectionError
 from services.report_api.harness.mcp import load_mcp_capabilities
 from services.report_api.harness.memory import InMemoryRunMemory
 from services.report_api.harness.models import (
@@ -44,6 +42,7 @@ from services.report_api.jobs import JobView, PersistentJobStore
 from services.report_api.providers.base import LLMProvider, LLMProviderError
 from services.report_api.providers.deepseek import DeepSeekProvider
 from services.report_api.providers.mock import MockProvider
+from services.report_api.research_harness import ResearchHarness
 from services.report_api.service import ReportGenerationError, ReportService
 from services.report_api.structured_match_data import (
     collect_structured_match_context,
@@ -103,6 +102,14 @@ def create_app(
     skill_registry = default_skill_registry()
     run_memory = InMemoryRunMemory()
     harness = ReportHarness(service, skill_registry, run_memory)
+    research_harness = ResearchHarness(
+        provider,
+        model=settings.deepseek_flash_model,
+        max_output_tokens=1000,
+        youtube_api_key=settings.youtube_api_key,
+        youtube_channel_ids=settings.youtube_official_channel_ids,
+        media_enabled=settings.licensed_media_enabled,
+    )
     repository_root = Path(__file__).resolve().parents[2]
     web_root = repository_root / "apps" / "web"
     job_store = PersistentJobStore(repository_root / settings.database_path)
@@ -124,6 +131,23 @@ def create_app(
         if kind in {"rate_limit", "invalid_response", "timeout", "transient"}:
             return "degraded"
         return "available" if settings.llm_provider == "deepseek" else "demo"
+
+    def require_internal_api() -> None:
+        if not settings.internal_api_enabled:
+            raise HTTPException(status_code=404, detail="not found")
+
+    async def parse_internal_body(
+        raw_request: Request, model_type: type[ReportRequest | ConsumerReportRequest]
+    ) -> ReportRequest | ConsumerReportRequest:
+        try:
+            payload = await raw_request.json()
+            return model_type.model_validate(payload)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422, detail=exc.errors(include_context=False)
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="invalid JSON body") from exc
 
     app = FastAPI(
         title="Football AI Report API",
@@ -176,7 +200,7 @@ def create_app(
             "mode": "live" if settings.llm_provider == "deepseek" else "demo",
             "model_status": model_status,
             "model_issue": provider_health["message"] or "",
-            "source": "批准来源池（Guardian/BBC RSS + GDELT + 可选 NewsAPI）",
+            "source": "四层资料流水线（URL 收集 + 精简提炼 + 增强补采 + 撰写整合）",
             "external_services": {
                 "sportmonks": settings.sportmonks_configured,
                 "football_data": settings.football_data_configured,
@@ -215,7 +239,10 @@ def create_app(
         return await collect_connector_health()
 
     @app.post("/v1/reports/generate", response_model=ReportResponse)
-    async def generate_report(request: ReportRequest) -> ReportResponse:
+    async def generate_report(raw_request: Request) -> ReportResponse:
+        require_internal_api()
+        request = await parse_internal_body(raw_request, ReportRequest)
+        assert isinstance(request, ReportRequest)
         try:
             return await service.generate(request)
         except ReportGenerationError as exc:
@@ -227,7 +254,10 @@ def create_app(
             ) from exc
 
     @app.post("/v1/runs", response_model=HarnessRunResponse)
-    async def run_report(request: ReportRequest) -> HarnessRunResponse:
+    async def run_report(raw_request: Request) -> HarnessRunResponse:
+        require_internal_api()
+        request = await parse_internal_body(raw_request, ReportRequest)
+        assert isinstance(request, ReportRequest)
         try:
             return await harness.run(request)
         except ReportGenerationError as exc:
@@ -240,15 +270,19 @@ def create_app(
 
     @app.post("/v1/research/reports", response_model=HarnessRunResponse)
     async def research_report(
-        request: ConsumerReportRequest,
+        raw_request: Request,
     ) -> HarnessRunResponse:
+        require_internal_api()
+        request = await parse_internal_body(raw_request, ConsumerReportRequest)
+        assert isinstance(request, ConsumerReportRequest)
         try:
-            evidence = await collect_research_evidence(
+            bundle = await research_harness.collect(
                 request,
                 max_items={"concise": 6, "standard": 10, "deep": 12}[
                     request.length.value
                 ],
             )
+            evidence = bundle.evidence
             match_context = None
             if request.report_type == ReportType.MATCH_PREDICTION:
                 try:
@@ -263,9 +297,12 @@ def create_app(
                 data_cutoff=datetime.now(UTC),
                 evidence=evidence,
                 match_context=match_context,
+                collection_warnings=bundle.warnings,
+                prefetched_media_assets=bundle.media_assets,
             )
             return await harness.run(
-                report_request, tool_rounds_used=3 if match_context else 2
+                report_request,
+                tool_rounds_used=bundle.tool_rounds_used + (1 if match_context else 0),
             )
         except EvidenceCollectionError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -288,12 +325,19 @@ def create_app(
                 phase="collecting_sources",
                 progress=10,
             )
-            evidence = await collect_research_evidence(
+            bundle = await research_harness.collect(
                 request,
                 max_items={"concise": 8, "standard": 16, "deep": 24}[
                     request.length.value
                 ],
+                progress_callback=lambda phase, progress: job_store.update(
+                    job_id,
+                    status="running",
+                    phase=phase,
+                    progress=progress,
+                ),
             )
+            evidence = bundle.evidence
             match_context = None
             if request.report_type == ReportType.MATCH_PREDICTION:
                 try:
@@ -307,13 +351,15 @@ def create_app(
                 job_id,
                 status="running",
                 phase="evidence_ready",
-                progress=30,
+                progress=44,
             )
             report_request = ReportRequest(
                 **request.model_dump(),
                 data_cutoff=datetime.now(UTC),
                 evidence=evidence,
                 match_context=match_context,
+                collection_warnings=bundle.warnings,
+                prefetched_media_assets=bundle.media_assets,
             )
             job_store.update(
                 job_id,
@@ -323,7 +369,7 @@ def create_app(
                     if request.report_type.value == "match_prediction"
                     else "research_desks"
                 ),
-                progress=45,
+                progress=55,
             )
 
             def record_progress(phase: str, progress: int) -> None:
@@ -336,7 +382,7 @@ def create_app(
 
             result = await harness.run(
                 report_request,
-                tool_rounds_used=3 if match_context else 2,
+                tool_rounds_used=bundle.tool_rounds_used + (1 if match_context else 0),
                 progress_callback=record_progress,
             )
             job_store.update(
@@ -346,13 +392,13 @@ def create_app(
                 progress=100,
                 result=result.model_dump(mode="json"),
             )
-        except EvidenceCollectionError:
+        except EvidenceCollectionError as exc:
             job_store.update(
                 job_id,
                 status="failed",
                 phase="failed",
                 progress=100,
-                error="近期资料不足或来源暂时不可用，请调整主题后重试",
+                error=str(exc) or "资料收集失败，请稍后重试",
             )
         except ReportGenerationError as exc:
             logger.warning("research job %s stopped by quality gate: %s", job_id, exc)
@@ -459,10 +505,12 @@ def create_app(
 
     @app.get("/v1/runs", response_model=list[HarnessTrace])
     async def list_runs() -> list[HarnessTrace]:
+        require_internal_api()
         return run_memory.list()
 
     @app.get("/v1/runs/{run_id}", response_model=HarnessTrace)
     async def get_run(run_id: str) -> HarnessTrace:
+        require_internal_api()
         trace = run_memory.get(run_id)
         if trace is None:
             raise HTTPException(status_code=404, detail="run not found")

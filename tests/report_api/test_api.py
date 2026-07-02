@@ -5,10 +5,14 @@ import httpx
 from services.report_api.config import Settings
 from services.report_api.domain import Evidence
 from services.report_api.main import create_app
+from services.report_api.research_harness import (
+    ResearchBundle,
+    fallback_research_plan,
+)
 
 
 async def post_json(path: str, payload: dict[str, object]) -> httpx.Response:
-    app = create_app(Settings())
+    app = create_app(Settings(internal_api_enabled=True))
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver"
@@ -23,6 +27,15 @@ async def get(path: str) -> httpx.Response:
         transport=transport, base_url="http://testserver"
     ) as client:
         return await client.get(path)
+
+
+def bundle_for(request, evidence: list[Evidence]) -> ResearchBundle:
+    return ResearchBundle(
+        evidence=evidence,
+        warnings=["测试资料包由 ResearchHarness 返回。"],
+        plan=fallback_research_plan(request),
+        source_attempts={"test": "ok"},
+    )
 
 
 def test_generate_world_cup_report_with_mock_provider() -> None:
@@ -126,8 +139,40 @@ def test_workbench_and_capabilities_are_available() -> None:
     assert capabilities.headers["cache-control"] == "no-store"
 
 
-def test_harness_run_endpoint_completes_and_is_queryable() -> None:
+def test_raw_evidence_endpoint_is_hidden_by_default() -> None:
     app = create_app(Settings())
+
+    async def scenario() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            return await client.post(
+                "/v1/reports/generate",
+                json={
+                    "report_type": "world_cup_daily",
+                    "subject": "世界杯今日综述",
+                    "report_date": "2026-06-28",
+                    "data_cutoff": "2026-06-28T08:00:00Z",
+                    "evidence": [
+                        {
+                            "id": "ev-1",
+                            "title": "Raw test evidence",
+                            "url": "https://example.com/match",
+                            "published_at": "2026-06-28T07:00:00Z",
+                            "source_name": "Caller supplied",
+                            "summary": "This should not be accepted publicly.",
+                        }
+                    ],
+                },
+            )
+
+    response = asyncio.run(scenario())
+
+    assert response.status_code == 404
+
+
+def test_harness_run_endpoint_completes_and_is_queryable() -> None:
+    app = create_app(Settings(internal_api_enabled=True))
 
     async def scenario() -> tuple[httpx.Response, httpx.Response]:
         transport = httpx.ASGITransport(app=app)
@@ -166,8 +211,8 @@ def test_harness_run_endpoint_completes_and_is_queryable() -> None:
 
 
 def test_research_endpoint_collects_real_evidence(monkeypatch) -> None:
-    async def fake_collect(_request, **_kwargs):
-        return [
+    async def fake_collect(_self, request, **_kwargs):
+        evidence = [
             Evidence(
                 id="publisher-1",
                 title="World Cup report",
@@ -185,9 +230,10 @@ def test_research_endpoint_collects_real_evidence(monkeypatch) -> None:
                 summary="A current preview for endpoint testing.",
             ),
         ]
+        return bundle_for(request, evidence)
 
     monkeypatch.setattr(
-        "services.report_api.main.collect_research_evidence", fake_collect
+        "services.report_api.research_harness.ResearchHarness.collect", fake_collect
     )
     response = asyncio.run(
         post_json(
@@ -204,7 +250,7 @@ def test_research_endpoint_collects_real_evidence(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["evidence"]) == 2
-    assert payload["run"]["tool_rounds_used"] == 2
+    assert payload["run"]["tool_rounds_used"] == 0
 
 
 def test_product_status_hides_model_details() -> None:
@@ -216,7 +262,7 @@ def test_product_status_hides_model_details() -> None:
         "mode": "demo",
         "model_status": "demo",
         "model_issue": "",
-        "source": "批准来源池（Guardian/BBC RSS + GDELT + 可选 NewsAPI）",
+        "source": "四层资料流水线（URL 收集 + 精简提炼 + 增强补采 + 撰写整合）",
         "external_services": {
             "sportmonks": False,
             "football_data": False,

@@ -3,6 +3,7 @@ from collections.abc import Iterable
 
 from services.report_api.domain import (
     MatchModelContext,
+    MediaAsset,
     RecentMatchSample,
     ReportRequest,
 )
@@ -359,6 +360,38 @@ def test_service_accepts_evidence_backed_player_card_and_match_timeline() -> Non
     assert result.report.enrichment.match_timeline[0].minute == "72"
 
 
+def test_service_injects_prefetched_media_assets() -> None:
+    request = request_payload().model_copy(
+        update={
+            "prefetched_media_assets": [
+                MediaAsset(
+                    asset_type="image",
+                    title="Example Player",
+                    url="https://commons.wikimedia.org/wiki/File:Example_Player.jpg",
+                    thumbnail_url="https://upload.wikimedia.org/example.jpg",
+                    provider="Wikimedia Commons",
+                    license="CC BY-SA 4.0",
+                    attribution="Photographer",
+                    rights_status="review_required",
+                    relevance_status="metadata_match",
+                )
+            ]
+        }
+    )
+    provider = SequenceProvider([report_output()])
+    service = ReportService(
+        provider=provider,
+        model="deepseek-v4-pro",
+        max_output_tokens=1000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(service.generate(request))
+
+    assert result.report.enrichment.media_assets
+    assert result.report.enrichment.media_assets[0].provider == "Wikimedia Commons"
+
+
 def test_service_prunes_unsupported_optional_enrichment() -> None:
     request = request_payload()
     request.evidence[0].summary = "Example Player completed a transfer."
@@ -422,8 +455,9 @@ def test_daily_digest_final_editor_uses_compacted_evidence() -> None:
     )
     assert "ev-24" in final_text
     assert "Harness 生成的确定性合稿提纲" in final_text
-    assert len(final_text) < 45_000
-    assert provider.final_request.max_output_tokens == 4500
+    assert len(final_text) < 22_000
+    assert provider.final_request.thinking_enabled is False
+    assert provider.final_request.max_output_tokens == 3200
 
 
 def test_daily_digest_recovers_final_transient_with_stable_mode() -> None:
@@ -446,7 +480,7 @@ def test_daily_digest_recovers_final_transient_with_stable_mode() -> None:
     ]
     stable_request = provider.final_attempts[-1]
     assert stable_request.thinking_enabled is False
-    assert stable_request.max_output_tokens == 3300
+    assert stable_request.max_output_tokens == 2600
     assert any("稳定合稿模式" in item for item in result.report.warnings)
 
 

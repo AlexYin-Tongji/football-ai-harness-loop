@@ -13,9 +13,9 @@ from services.report_api.domain import GeneratedReport, MediaAsset
 
 TAG_RE = re.compile(r"<[^>]+>")
 APPROVED_COMMONS_LICENSES = (
-    "CC BY",
-    "CC0",
-    "Public domain",
+    "cc by",
+    "cc0",
+    "public domain",
 )
 NAME_STOP_WORDS = {"jr", "sr", "ii", "iii", "iv", "de", "da", "dos", "van", "von"}
 
@@ -65,38 +65,66 @@ def _metadata_matches_name(name: str, title: str, metadata: dict[str, Any]) -> b
     return len(tokens) >= 3 and sum(token in text for token in tokens) >= 3
 
 
+def _license_allowed(license_name: str) -> bool:
+    normalized = _fold(license_name)
+    return normalized.startswith(APPROVED_COMMONS_LICENSES)
+
+
+def _commons_queries(name: str) -> list[str]:
+    tokens = _name_tokens(name)
+    if len(tokens) < 2:
+        return []
+    normalized = " ".join(tokens)
+    return [
+        f'"{name}" filetype:bitmap',
+        f'"{normalized}" football filetype:bitmap',
+        f'"{normalized}" "association football" filetype:bitmap',
+        f'"{tokens[-1]}" "{tokens[0]}" football filetype:bitmap',
+    ]
+
+
 async def search_commons_player_image(
     name: str, transport: httpx.AsyncBaseTransport | None = None
 ) -> MediaAsset | None:
     """Return one license-filtered Commons image with metadata name relevance."""
+    queries = _commons_queries(name)
+    if not queries:
+        return None
     timeout = httpx.Timeout(15.0, connect=5.0)
     async with httpx.AsyncClient(
         timeout=timeout, follow_redirects=False, transport=transport
     ) as client:
-        response = await client.get(
-            "https://commons.wikimedia.org/w/api.php",
-            params={
-                "action": "query",
-                "generator": "search",
-                "gsrsearch": f'"{name}" filetype:bitmap',
-                "gsrnamespace": 6,
-                "gsrlimit": 6,
-                "prop": "imageinfo",
-                "iiprop": "url|extmetadata",
-                "iiurlwidth": 960,
-                "format": "json",
-                "formatversion": 2,
-            },
-            headers={
-                "User-Agent": (
-                    "FootPulse/0.4 licensed-media-reader "
-                    "(https://github.com/AlexYin-Tongji/"
-                    "football-ai-harness-loop)"
-                )
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
+        for query in queries:
+            response = await client.get(
+                "https://commons.wikimedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "generator": "search",
+                    "gsrsearch": query,
+                    "gsrnamespace": 6,
+                    "gsrlimit": 8,
+                    "prop": "imageinfo",
+                    "iiprop": "url|extmetadata",
+                    "iiurlwidth": 960,
+                    "format": "json",
+                    "formatversion": 2,
+                },
+                headers={
+                    "User-Agent": (
+                        "FootPulse/0.5 licensed-media-reader "
+                        "(https://github.com/AlexYin-Tongji/"
+                        "football-ai-harness-loop)"
+                    )
+                },
+            )
+            response.raise_for_status()
+            asset = _select_commons_asset(name, response.json())
+            if asset:
+                return asset
+    return None
+
+
+def _select_commons_asset(name: str, payload: dict[str, Any]) -> MediaAsset | None:
     surname = re.findall(r"[\w'-]+", _fold(name))[-1:]
     for page in payload.get("query", {}).get("pages", []):
         title = str(page.get("title") or "")
@@ -110,7 +138,7 @@ async def search_commons_player_image(
         license_name = _plain(
             (metadata.get("LicenseShortName") or {}).get("value"), 120
         )
-        if not license_name.startswith(APPROVED_COMMONS_LICENSES):
+        if not _license_allowed(license_name):
             continue
         original_url = info.get("descriptionurl")
         thumbnail_url = info.get("thumburl") or info.get("url")
@@ -231,14 +259,19 @@ async def collect_report_media(
     youtube_channel_ids: list[str] | None = None,
 ) -> list[MediaAsset]:
     assets: list[MediaAsset] = []
+    seen_urls: set[str] = set()
     image_results = await asyncio.gather(
         *(
             search_commons_player_image(spotlight.media_search_name or spotlight.name)
             for spotlight in report.enrichment.player_spotlights[:3]
+            if _commons_queries(spotlight.media_search_name or spotlight.name)
         ),
         return_exceptions=True,
     )
-    assets.extend(item for item in image_results if isinstance(item, MediaAsset))
+    for item in image_results:
+        if isinstance(item, MediaAsset) and str(item.url) not in seen_urls:
+            assets.append(item)
+            seen_urls.add(str(item.url))
     if youtube_api_key and youtube_channel_ids:
         for query in _video_queries(report):
             try:
@@ -248,6 +281,7 @@ async def collect_report_media(
             except (httpx.HTTPError, ValueError, KeyError):
                 video = None
             if video:
-                assets.append(video)
+                if str(video.url) not in seen_urls:
+                    assets.append(video)
                 break
     return assets[:4]

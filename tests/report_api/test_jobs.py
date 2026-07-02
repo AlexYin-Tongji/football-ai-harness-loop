@@ -12,6 +12,19 @@ from services.report_api.jobs import PersistentJobStore
 from services.report_api.main import create_app
 from services.report_api.providers.base import LLMProviderError
 from services.report_api.providers.mock import MockProvider
+from services.report_api.research_harness import (
+    ResearchBundle,
+    fallback_research_plan,
+)
+
+
+def bundle_for(request, evidence: list[Evidence]) -> ResearchBundle:
+    return ResearchBundle(
+        evidence=evidence,
+        warnings=["测试资料包由 ResearchHarness 返回。"],
+        plan=fallback_research_plan(request),
+        source_attempts={"test": "ok"},
+    )
 
 
 def test_job_store_survives_process_reconstruction(tmp_path: Path) -> None:
@@ -55,12 +68,51 @@ def test_job_store_marks_interrupted_work_after_restart(tmp_path: Path) -> None:
     assert restored.phase == "interrupted"
 
 
+def test_prediction_outcome_rejects_duplicate_write(tmp_path: Path) -> None:
+    path = tmp_path / "outcomes.db"
+    request = ConsumerReportRequest(
+        report_type="match_prediction",
+        subject="A vs B",
+        report_date="2026-07-01",
+        match_stage="knockout",
+    )
+    store = PersistentJobStore(path)
+    job = store.create(request)
+    store.update(
+        job.id,
+        status="completed",
+        phase="completed",
+        progress=100,
+        result={
+            "report": {
+                "report": {
+                    "prediction": {
+                        "home_win": 0.4,
+                        "draw": 0.3,
+                        "away_win": 0.3,
+                    }
+                }
+            }
+        },
+    )
+
+    first = store.record_prediction_outcome(job.id, "home")
+
+    assert first["brier_score"] > 0
+    try:
+        store.record_prediction_outcome(job.id, "away")
+    except ValueError as exc:
+        assert "already recorded" in str(exc)
+    else:
+        raise AssertionError("duplicate outcome write should fail")
+
+
 def test_async_research_job_reports_real_completion(
     tmp_path: Path, monkeypatch
 ) -> None:
-    async def fake_collect(_request, **_kwargs):
+    async def fake_collect(_self, request, **_kwargs):
         now = datetime.now(UTC)
-        return [
+        evidence = [
             Evidence(
                 id="source-1",
                 title="Football update",
@@ -78,9 +130,10 @@ def test_async_research_job_reports_real_completion(
                 summary="A current transfer update.",
             ),
         ]
+        return bundle_for(request, evidence)
 
     monkeypatch.setattr(
-        "services.report_api.main.collect_research_evidence", fake_collect
+        "services.report_api.research_harness.ResearchHarness.collect", fake_collect
     )
     settings = Settings(database_path=tmp_path / "api-jobs.db")
     app = create_app(settings, MockProvider())
@@ -117,9 +170,9 @@ def test_async_research_job_reports_real_completion(
 def test_async_job_reports_provider_disconnect_separately(
     tmp_path: Path, monkeypatch
 ) -> None:
-    async def fake_collect(_request, **_kwargs):
+    async def fake_collect(_self, request, **_kwargs):
         now = datetime.now(UTC)
-        return [
+        evidence = [
             Evidence(
                 id=f"source-{index}",
                 title=f"Football update {index}",
@@ -130,13 +183,14 @@ def test_async_job_reports_provider_disconnect_separately(
             )
             for index in range(2)
         ]
+        return bundle_for(request, evidence)
 
     class DisconnectedProvider:
         async def generate_json(self, _request):
             raise LLMProviderError("DeepSeek request failed: RemoteProtocolError")
 
     monkeypatch.setattr(
-        "services.report_api.main.collect_research_evidence", fake_collect
+        "services.report_api.research_harness.ResearchHarness.collect", fake_collect
     )
     app = create_app(
         Settings(database_path=tmp_path / "failed-jobs.db"),
@@ -172,9 +226,9 @@ def test_async_job_reports_provider_disconnect_separately(
 def test_async_job_reports_deepseek_authentication_error(
     tmp_path: Path, monkeypatch
 ) -> None:
-    async def fake_collect(_request, **_kwargs):
+    async def fake_collect(_self, request, **_kwargs):
         now = datetime.now(UTC)
-        return [
+        evidence = [
             Evidence(
                 id=f"source-{index}",
                 title=f"Football update {index}",
@@ -185,6 +239,7 @@ def test_async_job_reports_deepseek_authentication_error(
             )
             for index in range(2)
         ]
+        return bundle_for(request, evidence)
 
     class UnauthorizedProvider:
         async def generate_json(self, _request):
@@ -195,7 +250,7 @@ def test_async_job_reports_deepseek_authentication_error(
             )
 
     monkeypatch.setattr(
-        "services.report_api.main.collect_research_evidence", fake_collect
+        "services.report_api.research_harness.ResearchHarness.collect", fake_collect
     )
     app = create_app(
         Settings(database_path=tmp_path / "auth-failed-jobs.db"),

@@ -209,7 +209,7 @@ class PersistentJobStore:
         log_loss = multiclass_log_loss(probabilities, outcome_index)
         now = datetime.now(UTC)
         with self._lock, self._connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO prediction_outcomes
                 (job_id, outcome, brier_score, log_loss, created_at)
@@ -218,6 +218,13 @@ class PersistentJobStore:
                 """,
                 (job_id, outcome, brier, log_loss, now.isoformat()),
             )
+            if cursor.rowcount == 0:
+                self._audit(
+                    connection, "record_result", "prediction", job_id, "duplicate"
+                )
+                raise ValueError(
+                    "prediction outcome already recorded; use a correction workflow"
+                )
             self._audit(
                 connection, "record_result", "prediction", job_id, "accepted"
             )

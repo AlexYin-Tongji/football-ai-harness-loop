@@ -11,16 +11,17 @@ description: 生成《今日球脉》：把赛事日报、观赛引导和转会�
 
 ## 固定工作流
 
-1. Source Registry：只加载已批准来源；候选或受阻来源不得进入生产证据。
-2. Discovery：RSS 获取出版方内容；GDELT 只发现批准域名的元数据线索。
-3. Match News Research（Flash）：提取赛果、赛程、晋级影响、伤停、球队动态和观赛重点。赛果与赛程没有结构化来源时必须标为待核验。
-4. Transfer Research（Flash）：抽取球员、原俱乐部、目标俱乐部、窗口和转会阶段。传闻、接触、谈判、报价、原则协议、体检、官宣和否认必须分开。
-5. Entity Enrichment（只读 MCP）：对高优先级球员补位置、当前球队、近期出场/进球/助攻；对已结束比赛补进球者、分钟、比分变化和关键事件。没有授权结构化数据则保持空白。
-6. Desk Writing（Pro，两个栏目并行）：分别形成赛事桌和转会桌草稿，保留逐节 evidence_id。
-7. Editor Synthesis（Pro）：去重并整合为《今日球脉》，不得把发现线索升级成事实。
-8. Licensed Media（代码/MCP）：球员图片只接受带许可和署名的 Commons/Sportmonks 素材；视频只接受频道白名单内可嵌入链接，不下载视频。
-9. Quality Gate（代码）：检查引用、时间截止、概率、未知来源、传闻标签、数据指标、事件分钟、媒体权利和隐私；失败最多修订一轮。
-10. Human Review：返回用户编辑、复制或导出；不自动发布。
+1. URL Collection：只加载已批准来源；RSS/GDELT/NewsAPI 只输出候选 URL、元数据和短摘录。
+2. Evidence Refinement：压缩候选资料，保留时间、来源状态、关键数字和传闻标签，不新增事实。
+3. Enhancement：按 `research-enhancement` SKILL 补球员/比赛结构化资料、许可图片或官方视频；GIF 只能转人工。
+4. Writing Handoff：把精简证据包与增强素材交给赛事/转会研究桌，撰写层不得重新研究。
+5. Match News Research（Flash）：提取赛果、赛程、晋级影响、伤停、球队动态和观赛重点。赛果与赛程没有结构化来源时必须标为待核验。
+6. Transfer Research（Flash）：抽取球员、原俱乐部、目标俱乐部、窗口和转会阶段。传闻、接触、谈判、报价、原则协议、体检、官宣和否认必须分开。
+7. Desk Writing（Pro，两个栏目并行）：分别形成赛事桌和转会桌草稿，保留逐节 evidence_id。
+8. Editor Synthesis（Pro）：去重并整合为《今日球脉》，不得把发现线索升级成事实。
+9. Licensed Media（代码/MCP）：球员图片只接受带许可和署名的 Commons 素材；视频只接受频道白名单内可嵌入链接，不下载视频。
+10. Quality Gate（代码）：检查引用、时间截止、概率、未知来源、传闻标签、数据指标、事件分钟、媒体权利和隐私；失败最多修订一轮。
+11. Human Review：返回用户编辑、复制或导出；不自动发布。
 
 ## 编辑深度
 

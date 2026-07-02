@@ -11,7 +11,9 @@ from pydantic import ValidationError
 from services.report_api.domain import (
     DeskBrief,
     DeskDraft,
+    EvidenceFactor,
     GeneratedReport,
+    MediaAsset,
     PredictionOpinion,
     ReportRequest,
     ReportResponse,
@@ -19,6 +21,12 @@ from services.report_api.domain import (
     TokenUsage,
 )
 from services.report_api.media import collect_report_media
+from services.report_api.model_control import (
+    PREDICTION_ANALYSIS_CONTRACT,
+    build_daily_final_messages,
+    message_chars,
+    stage_policy,
+)
 from services.report_api.prediction import (
     build_statistical_baseline,
     extract_external_predictions,
@@ -106,6 +114,98 @@ def _append_report_warning(report: GeneratedReport, warning: str) -> None:
         report.warnings.append(warning)
     elif report.warnings:
         report.warnings[-1] = warning
+
+
+def _merge_media_assets(
+    first: list[MediaAsset], second: list[MediaAsset]
+) -> list[MediaAsset]:
+    merged: list[MediaAsset] = []
+    seen: set[str] = set()
+    for asset in [*first, *second]:
+        key = str(asset.url)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(asset)
+        if len(merged) >= 8:
+            break
+    return merged
+
+
+def _ensure_prediction_analysis(report: GeneratedReport) -> None:
+    prediction = report.prediction
+    if prediction is None or prediction.analysis_process:
+        return
+    cited = [
+        *(prediction.supporting_factors[:2]),
+        *(prediction.counter_factors[:1]),
+    ]
+    if not cited:
+        return
+    prediction.analysis_process = [
+        EvidenceFactor(
+            claim="先读取赛前证据包，区分已确认事实、来源观点和未知项。",
+            evidence_ids=cited[0].evidence_ids,
+        ),
+        EvidenceFactor(
+            claim=(
+                "再对支持因素和反方因素分别加权，避免只按单一标题给出胜负倾向。"
+            ),
+            evidence_ids=list(
+                dict.fromkeys(eid for item in cited for eid in item.evidence_ids)
+            ),
+        ),
+        EvidenceFactor(
+            claim="最后把不确定性反映到胜平负概率和置信度，而不是给确定赛果。",
+            evidence_ids=cited[-1].evidence_ids,
+        ),
+    ]
+
+
+def _append_coverage_warnings(
+    report: GeneratedReport,
+    request: ReportRequest,
+    *,
+    statistical_baseline: object | None,
+) -> None:
+    for warning in request.collection_warnings:
+        _append_report_warning(report, warning)
+    independent = {
+        item.source_independence_key or item.source_id for item in request.evidence
+    }
+    verified_independent = {
+        item.source_independence_key or item.source_id
+        for item in request.evidence
+        if item.verification_status != "unverified_lead"
+    }
+    if len(independent) < 2:
+        _append_report_warning(
+            report,
+            "本次资料覆盖少于两个独立来源，适合做初步整理，发布前建议补充核验。",
+        )
+    elif len(verified_independent) < 2:
+        _append_report_warning(
+            report,
+            "本次有多条线索但已核验独立来源不足两家，传闻和发现层内容请谨慎发布。",
+        )
+    if (
+        request.report_type == ReportType.MATCH_PREDICTION
+        and statistical_baseline is None
+    ):
+        _append_report_warning(
+            report,
+            "结构化近期赛果不足，未展示可复现统计基线；当前概率主要是证据型 AI 研判。",
+        )
+    if (
+        request.report_type == ReportType.MATCH_PREDICTION
+        and report.prediction
+        and not report.prediction.external_predictions
+    ):
+        _append_report_warning(
+            report,
+            "输入证据中没有可引用的外部公开预测，系统未补造 Opta、FIFA "
+            "或媒体概率。",
+        )
 
 
 def _daily_editor_outline(request: ReportRequest, desk_drafts: list[DeskDraft]) -> str:
@@ -226,6 +326,8 @@ class ReportService:
                             if statistical_baseline
                             else "当前缺少每队至少三场结构化赛果，统计基线不可用。"
                         )
+                        + "\n"
+                        + PREDICTION_ANALYSIS_CONTRACT
                     ),
                 }
             )
@@ -233,28 +335,18 @@ class ReportService:
             desk_drafts, council_results = await self._run_daily_desks(request)
             if progress_callback:
                 progress_callback("desk_drafts_ready", 75)
-            messages = build_messages(
-                _compact_request_for_final_editor(request), skill_instructions
+            final_policy = stage_policy(
+                "daily_final",
+                configured_output_tokens=self._max_output_tokens,
+                length=request.length.value,
             )
-            if desk_drafts:
-                outline = _daily_editor_outline(request, desk_drafts)
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "以下是 Harness 生成的确定性合稿提纲。它不是新事实，"
-                            "只用于控制栏目边界、引用和去重；如果提纲与证据冲突，"
-                            "以证据和草稿为准。\n"
-                            f"{outline}\n\n"
-                            "以下是赛事桌与转会桌分别完成的草稿。你是总编辑：去重、"
-                            "保留两个栏目边界并整合为一份《今日球脉》。传闻必须保留"
-                            "明确的未核实标签，不能因进入草稿而升级可信度。"
-                            "你已经收到压缩证据索引；事实细节优先来自草稿，"
-                            "引用只能使用索引中存在的 evidence_id。\n"
-                            + "\n".join(item.model_dump_json() for item in desk_drafts)
-                        ),
-                    }
-                )
+            messages = build_daily_final_messages(
+                request,
+                desk_drafts=desk_drafts,
+                outline_json=_daily_editor_outline(request, desk_drafts),
+                skill_instructions=skill_instructions,
+                max_input_chars=final_policy.max_input_chars,
+            )
         if request.report_type == ReportType.MATCH_PREDICTION and self._council_enabled:
             opinions, council_results = await self._run_prediction_council(request)
             if progress_callback:
@@ -266,7 +358,7 @@ class ReportService:
                         "content": (
                             f"以下是 {len(opinions)} 个成功返回的独立分析席位意见。"
                             "你是终审席：必须审阅分歧，不得简单平均；仅能引用输入 "
-                            "evidence_id，并输出最终报告。如果少于两个席位，必须在 "
+                            "evidence_id，并输出最终报告。如果少于三个席位，必须在 "
                             "warnings 中说明预测委员会已降级。\n"
                             + "\n".join(item.model_dump_json() for item in opinions)
                         ),
@@ -304,6 +396,27 @@ class ReportService:
         for attempt in range(1, attempt_limit + 1):
             if progress_callback:
                 progress_callback("editor_synthesis", 82)
+            if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:
+                final_policy = stage_policy(
+                    "daily_final",
+                    configured_output_tokens=self._max_output_tokens,
+                    length=request.length.value,
+                )
+                thinking_enabled = final_policy.thinking_enabled
+                max_output_tokens = final_policy.max_output_tokens
+            elif request.report_type == ReportType.MATCH_PREDICTION:
+                final_policy = stage_policy(
+                    "prediction_judge",
+                    configured_output_tokens=self._max_output_tokens,
+                    length=request.length.value,
+                )
+                thinking_enabled = final_policy.thinking_enabled
+                max_output_tokens = final_policy.max_output_tokens
+            else:
+                thinking_enabled = False
+                max_output_tokens = _final_output_budget(
+                    request, self._max_output_tokens
+                )
             llm_request = LLMRequest(
                 purpose=request.report_type.value,
                 model=(
@@ -316,14 +429,8 @@ class ReportService:
                     else self._flash_model
                 ),
                 messages=messages,
-                thinking_enabled=request.report_type
-                in {
-                    ReportType.MATCH_PREDICTION,
-                    ReportType.DAILY_FOOTBALL_DIGEST,
-                },
-                max_output_tokens=_final_output_budget(
-                    request, self._max_output_tokens
-                ),
+                thinking_enabled=thinking_enabled,
+                max_output_tokens=max_output_tokens,
                 metadata={
                     "report_type": request.report_type.value,
                     "subject": request.subject,
@@ -331,6 +438,7 @@ class ReportService:
                         request.match_stage.value if request.match_stage else None
                     ),
                     "evidence_ids": [item.id for item in request.evidence],
+                    "input_chars": message_chars(messages),
                 },
             )
             try:
@@ -393,15 +501,26 @@ class ReportService:
                     *report.prediction.external_predictions,
                     *additions,
                 ][:6]
+                _ensure_prediction_analysis(report)
 
+            _append_coverage_warnings(
+                report, request, statistical_baseline=statistical_baseline
+            )
+
+            media_assets = list(request.prefetched_media_assets)
             if self._media_enabled:
                 if progress_callback:
                     progress_callback("licensed_media", 90)
-                report.enrichment.media_assets = await collect_report_media(
-                    report,
-                    youtube_api_key=self._youtube_api_key,
-                    youtube_channel_ids=list(self._youtube_channel_ids),
+                media_assets = _merge_media_assets(
+                    media_assets,
+                    await collect_report_media(
+                        report,
+                        youtube_api_key=self._youtube_api_key,
+                        youtube_channel_ids=list(self._youtube_channel_ids),
+                    ),
                 )
+            if media_assets:
+                report.enrichment.media_assets = media_assets
 
             return ReportResponse(
                 id=str(uuid4()),
@@ -430,6 +549,13 @@ class ReportService:
         request: ReportRequest,
         exc: LLMProviderError,
     ) -> LLMRequest:
+        stable_policy = stage_policy(
+            "daily_stable_final"
+            if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST
+            else "prediction_judge",
+            configured_output_tokens=self._max_output_tokens,
+            length=request.length.value,
+        )
         return LLMRequest(
             purpose=f"{request.report_type.value}:stable_final",
             model=llm_request.model,
@@ -447,9 +573,7 @@ class ReportService:
                 },
             ],
             thinking_enabled=False,
-            max_output_tokens=_stable_final_output_budget(
-                request, self._max_output_tokens
-            ),
+            max_output_tokens=stable_policy.max_output_tokens,
             metadata={
                 **llm_request.metadata,
                 "recovery": "stable_final",
@@ -488,6 +612,7 @@ class ReportService:
             ).model_dump(mode="json"),
             request,
         )
+        report.enrichment.media_assets = request.prefetched_media_assets[:8]
         return ReportResponse(
             id=str(uuid4()),
             provider="harness",
@@ -617,6 +742,7 @@ class ReportService:
         )
         roles = {
             "form_analyst": "从实力、状态、阵容、休息和战术匹配分析支持性证据",
+            "tactical_analyst": "从阵型、压迫方式、边路/中路对位和比赛节奏形成独立预测",
             "skeptic": "主动寻找样本偏差、伤停不确定性、对位风险和反方证据",
         }
 

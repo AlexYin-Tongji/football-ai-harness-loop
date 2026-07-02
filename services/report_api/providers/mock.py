@@ -7,6 +7,57 @@ class MockProvider:
     """Deterministic, clearly labelled demo provider for local product work."""
 
     async def generate_json(self, request: LLMRequest) -> LLMResult:
+        if request.purpose == "research_plan":
+            return LLMResult(
+                output={
+                    "queries": [
+                        {
+                            "query": "FIFA World Cup football transfer news today",
+                            "purpose": "match_news",
+                            "sources": ["rss", "gdelt", "newsapi"],
+                        },
+                        {
+                            "query": "World Cup match preview team news prediction",
+                            "purpose": "prediction_context",
+                            "sources": ["gdelt", "newsapi"],
+                        },
+                    ],
+                    "min_items": 1,
+                    "allow_discovery_only": True,
+                },
+                provider="mock",
+                model=request.model,
+            )
+        if request.purpose == "evidence_refinement":
+            candidate_ids = request.metadata.get("candidate_ids") or []
+            return LLMResult(
+                output={
+                    "items": [
+                        {
+                            "source_evidence_id": evidence_id,
+                            "title": "Mock 精简资料",
+                            "concise_summary": (
+                                "mock 模式下的资料精简结果；真实模式会压缩标题、"
+                                "短摘录、时间和来源状态。"
+                            ),
+                            "key_points": ["保留来源边界", "不新增事实"],
+                        }
+                        for evidence_id in candidate_ids[:8]
+                    ],
+                    "warnings": ["当前为 mock 资料精简。"],
+                },
+                provider="mock",
+                model=request.model,
+            )
+        if request.purpose == "enhancement_plan":
+            return LLMResult(
+                output={
+                    "needs": [],
+                    "warnings": ["mock 模式不自动调用外部增强工具。"],
+                },
+                provider="mock",
+                model=request.model,
+            )
         report_type = request.metadata["report_type"]
         evidence_id = request.metadata["evidence_ids"][0]
         subject = request.metadata["subject"]
@@ -171,6 +222,20 @@ class MockProvider:
                     else None
                 ),
                 "scorelines": ["1-0", "1-1", "0-1"],
+                "analysis_process": [
+                    {
+                        "claim": "先读取证据包中的赛前信息，确认当前只是演示上下文。",
+                        "evidence_ids": [evidence_id],
+                    },
+                    {
+                        "claim": "再平衡支持因素和反方因素，所以概率保持低置信度。",
+                        "evidence_ids": [evidence_id],
+                    },
+                    {
+                        "claim": "最后把未知项保留在报告中，不给出确定比分。",
+                        "evidence_ids": [evidence_id],
+                    },
+                ],
                 "supporting_factors": [
                     {"claim": "演示支持因素", "evidence_ids": [evidence_id]}
                 ],

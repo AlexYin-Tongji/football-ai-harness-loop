@@ -254,6 +254,7 @@ def validate_generated_report(
                 errors.append("home_win + draw + away_win must equal 1")
 
             for factor in [
+                *prediction.analysis_process,
                 *prediction.supporting_factors,
                 *prediction.counter_factors,
             ]:

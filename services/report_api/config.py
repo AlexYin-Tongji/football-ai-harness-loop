@@ -70,6 +70,7 @@ class Settings:
     report_max_attempts: int = 2
     admin_enabled: bool = False
     admin_token: str | None = None
+    internal_api_enabled: bool = False
     database_path: Path = Path("data/footpulse.db")
     max_concurrent_jobs: int = 2
     sportmonks_configured: bool = False
@@ -97,6 +98,9 @@ class Settings:
             report_max_attempts=int(os.getenv("REPORT_MAX_ATTEMPTS", "2")),
             admin_enabled=os.getenv("ADMIN_ENABLED", "false").lower() == "true",
             admin_token=os.getenv("ADMIN_TOKEN") or None,
+            internal_api_enabled=os.getenv("FOOTPULSE_INTERNAL_API_ENABLED", "false")
+            .lower()
+            == "true",
             database_path=Path(
                 os.getenv("FOOTPULSE_DATABASE_PATH", "data/footpulse.db")
             ),

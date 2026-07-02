@@ -79,6 +79,10 @@ class MCPServerCapability(BaseModel):
     id: str
     status: str
     read_only: bool
+    configured: bool = True
+    required_env: list[str] = Field(default_factory=list)
+    production_status: str | None = None
+    notes: str | None = None
 
 
 class SystemCapabilities(BaseModel):

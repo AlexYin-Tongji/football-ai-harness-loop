@@ -1,10 +1,10 @@
 {
   "id": "match-prediction",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "report_type": "match_prediction",
   "max_model_rounds": 5,
   "max_tool_rounds": 6,
-  "phases": ["snapshot", "statistical_baseline", "match_event_enrichment", "form_analyst", "skeptic", "judge", "external_comparison", "licensed_media", "validate", "human_review"],
+  "phases": ["url_collection", "evidence_refinement", "enhancement", "writing_handoff", "statistical_baseline", "form_analyst", "tactical_analyst", "skeptic", "judge", "external_comparison", "licensed_media", "validate", "human_review"],
   "mcp_servers": ["source-registry", "football-data", "sportmonks", "rss-news", "news-discovery", "media-assets"],
   "memory_read": ["source_reliability", "prediction_calibration"],
   "memory_write": ["run_summary", "prediction_snapshot"],

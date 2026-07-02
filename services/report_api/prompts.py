@@ -20,6 +20,9 @@ def build_messages(
         "verification_status=unverified_lead 的资料只能写成传闻/线索，必须明确"
         "未核实；不得把发现层标题升级为事实。外部预测只在输入证据明确给出时"
         "写入 prediction.external_predictions，禁止杜撰来源概率。"
+        "比赛预测不得只给胜平负数字；prediction.analysis_process 必须写出"
+        "3-6 条证据支撑的分析步骤，说明从赛前事实、支持因素、反方因素和"
+        "未知项如何走到概率。"
         "prediction.statistical_baseline 由 Harness 确定性注入，模型必须返回 null。"
         "story_cluster_id 相同的资料按同一事件处理；同一 "
         "source_independence_key 的多条转载不能算多个独立来源。"
@@ -39,7 +42,9 @@ def build_messages(
     )
     if skill_instructions:
         system += "\n\n已激活的版本化 Skill：\n" + skill_instructions
-    user_payload = request.model_dump(mode="json")
+    user_payload = request.model_dump(
+        mode="json", exclude={"prefetched_media_assets"}
+    )
     user = (
         "请根据下面的 JSON 资料生成报告。match_prediction 类型必须给出 prediction；"
         "其他类型 prediction 必须为 null。\n"
