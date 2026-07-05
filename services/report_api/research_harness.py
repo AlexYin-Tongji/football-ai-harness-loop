@@ -55,7 +55,7 @@ from services.report_api.structured_match_data import (
     collect_daily_structured_match_evidence_with_warnings,
 )
 
-INITIAL_LEADER_SEED_MAX_ITEMS = 8
+INITIAL_LEADER_SEED_MAX_ITEMS = 14
 COLUMN_TEAM_MAX_ITERATIONS = 4
 
 ResearchSource = Literal["rss", "gdelt", "newsapi"]
@@ -2107,7 +2107,7 @@ class ResearchHarness:
         if progress_callback:
             progress_callback("url_collection", 18)
 
-        refinement_limit = min(20, leader_seed_items + len(structured_evidence))
+        refinement_limit = min(30, leader_seed_items + len(structured_evidence))
         refinement = await self._refinement_layer.refine(
             request, url_result.candidates, max_items=refinement_limit
         )
@@ -2163,7 +2163,7 @@ class ResearchHarness:
             columns = self._leader_layer._fallback_editorial_plan(
                 request, refinement.evidence
             )
-        team_item_limit = min(24, max(8, max_items))
+        team_item_limit = min(32, max(10, max_items))
         team_results = await asyncio.gather(
             *(
                 self._run_column_team_loop(
@@ -2182,7 +2182,7 @@ class ResearchHarness:
         if progress_callback:
             progress_callback("column_team_loop", 48)
 
-        evidence_limit = min(40, max(max_items, len(columns) * 5, 12))
+        evidence_limit = min(60, max(max_items, len(columns) * 7, 16))
         evidence = self._merge_column_team_evidence(
             request,
             refinement.evidence,

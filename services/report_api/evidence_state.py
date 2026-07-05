@@ -45,6 +45,13 @@ COMPLETED_COPY_RE = re.compile(
     r"\u4ee5\s*\d{1,2}\s*[-:\u2013\u2014]\s*\d{1,2}\s*(?:\u51fb\u8d25|\u6218\u80dc)",
     re.I,
 )
+RESULT_COPY_RE = re.compile(
+    r"\b(?:beat|defeated|won|victory|finished|ended)\b|"
+    r"\u4ee5\s*\d{1,2}\s*[-:\u2013\u2014]\s*\d{1,2}\s*(?:\u51fb\u8d25|\u6218\u80dc)|"
+    r"\u51fb\u8d25|\u6218\u80dc|\u53d6\u80dc|\u83b7\u80dc|\u7ec8\u573a|"
+    r"\u5c55\u5f00\u8f83\u91cf",
+    re.I,
+)
 FUTURE_COPY_RE = re.compile(
     r"\b(?:will|is set to|scheduled|upcoming|ahead of|before|kick[- ]?off)\b|"
     r"\u5c06\u4e8e|\u5373\u5c06|\u8d5b\u524d|\u5907\u6218|\u5f00\u7403\u65f6\u95f4",
@@ -133,6 +140,10 @@ def has_completed_match_claim(text: str) -> bool:
     return bool(COMPLETED_COPY_RE.search(text) or SCORELINE_RE.search(text))
 
 
+def has_result_match_claim(text: str) -> bool:
+    return bool(RESULT_COPY_RE.search(text) or SCORELINE_RE.search(text))
+
+
 def has_future_match_framing(text: str) -> bool:
     return bool(FUTURE_COPY_RE.search(text))
 
@@ -159,7 +170,20 @@ def match_state_errors(section: ReportSection, cited: list[Evidence]) -> list[st
         return []
     section_text = f"{section.heading} {section.body}"
     state = match_evidence_state(cited)
-    if state == "upcoming_match" and has_completed_match_claim(section_text):
+    if (
+        state == "upcoming_match"
+        and section.category == "match"
+        and has_completed_match_claim(section_text)
+    ):
+        return [
+            f"section '{section.heading}' writes upcoming fixture evidence "
+            "as a completed/today match"
+        ]
+    if (
+        state == "upcoming_match"
+        and section.category != "match"
+        and has_result_match_claim(section_text)
+    ):
         return [
             f"section '{section.heading}' writes upcoming fixture evidence "
             "as a completed/today match"

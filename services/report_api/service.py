@@ -38,6 +38,7 @@ from services.report_api.evidence_state import (
     completed_match_items,
     evidence_is_match_like,
     has_completed_match_claim,
+    has_result_match_claim,
     is_completed_match_evidence,
     is_transfer_evidence,
     is_upcoming_match_evidence,
@@ -156,6 +157,10 @@ TEAM_ALIASES = {
     "Switzerland": ("Switzerland", "瑞士"),
     "Algeria": ("Algeria", "阿尔及利亚"),
     "Japan": ("Japan", "日本"),
+    "Argentina": ("Argentina", "阿根廷"),
+    "Cape Verde Islands": ("Cape Verde Islands", "Cape Verde", "佛得角"),
+    "Colombia": ("Colombia", "哥伦比亚"),
+    "Ghana": ("Ghana", "加纳"),
 }
 MATCH_CATEGORY_RE = re.compile(
     r"世界杯|比赛|进球|VAR|点球|淘汰赛|晋级|击败|战胜|克罗地亚|葡萄牙|西班牙|奥地利|"
@@ -551,8 +556,8 @@ def _source_team_scores(evidence: list[Evidence]) -> dict[str, int]:
                 away_team = after[0]
                 if home_team == away_team:
                     continue
-                scores[home_team] = int(match.group("home"))
-                scores[away_team] = int(match.group("away"))
+                scores.setdefault(home_team, int(match.group("home")))
+                scores.setdefault(away_team, int(match.group("away")))
     return scores
 
 
@@ -1162,12 +1167,47 @@ def _sanitize_section_claims(
     return section.model_copy(update={"body": sanitized_body}), changed
 
 
+def _structured_match_heading(item: Evidence) -> str | None:
+    if item.evidence_kind != "structured" or item.source_id != "football-data-org":
+        return None
+    title = clean_evidence_text(item.title)
+    title = title.removeprefix("结构化赛果｜").removeprefix("结构化赛程｜")
+    title = re.sub(r"（北京时间 [^）]+）", "", title)
+    return _shorten(title.strip(), 80) if title.strip() else None
+
+
+def _structured_match_body(item: Evidence) -> str | None:
+    heading = _structured_match_heading(item)
+    if heading is None:
+        return None
+    kickoff = re.search(r"北京时间\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", item.title)
+    stage = re.search(r"阶段\s*([^，。]+)", item.summary)
+    status = "已完赛" if "状态 FINISHED" in item.summary else "赛程记录"
+    pieces = []
+    if kickoff:
+        pieces.append(f"北京时间 {kickoff.group(1)}")
+    if stage:
+        pieces.append(stage.group(1))
+    meta = "，".join(pieces)
+    prefix = f"{meta}，" if meta else ""
+    body = f"{prefix}{heading}，{status}。"
+    if "当前无进球者/分钟" in item.summary or "缺少结构化进球者" in item.summary:
+        body += (
+            "当前授权结构化源未返回进球者、红黄牌、换人或分钟事件，"
+            "正文不补写进球时间线。"
+        )
+    return body
+
+
 def _clean_fact_from_evidence(item: Evidence) -> str:
+    structured = _structured_match_body(item)
+    if structured:
+        return structured
     title = clean_evidence_text(item.title)
     summary = clean_evidence_text(item.summary)
     if summary and summary != title:
-        return f"{item.source_name}资料显示：{title}。摘要信息：{summary}。"
-    return f"{item.source_name}资料显示：{title}。"
+        return f"{item.source_name}报道，{summary}"
+    return f"{item.source_name}报道，{title}。"
 
 
 def _story_groups_for_column(
@@ -1314,13 +1354,16 @@ def _fallback_sections_for_column(
         body = " ".join(_clean_fact_from_evidence(item) for item in group[:2])
         category = _fallback_category_for_group(column, group)
         heading_prefix = _fallback_heading_prefix(column, category)
+        evidence_heading = _structured_match_heading(lead) or clean_evidence_text(
+            lead.title
+        )
         section = ReportSection(
             heading=(
                 heading_prefix
                 if needed == 1
                 else (
                     f"{heading_prefix}｜"
-                    f"{_shorten(clean_evidence_text(lead.title), 48)}"
+                    f"{_shorten(evidence_heading, 48)}"
                 )
             ),
             body=body,
@@ -1337,8 +1380,11 @@ def _fallback_sections_for_column(
 def _minimal_daily_sections(request: ReportRequest) -> list[ReportSection]:
     sections: list[ReportSection] = []
     for item in request.evidence[:6]:
+        evidence_heading = _structured_match_heading(item) or clean_evidence_text(
+            item.title
+        )
         section = ReportSection(
-            heading=f"证据摘要｜{_shorten(clean_evidence_text(item.title), 48)}",
+            heading=f"证据摘要｜{_shorten(evidence_heading, 48)}",
             body=_clean_fact_from_evidence(item),
             evidence_ids=[item.id],
             category="context",
@@ -1584,20 +1630,9 @@ def _match_story_keys(request: ReportRequest, column: EditorialColumnPlan) -> se
         if not is_completed_match_evidence(item):
             continue
         text = f"{item.title} {item.summary}"
-        teams = [
-            team
-            for team in TEAM_WORDS
-            if re.search(rf"(?<![A-Za-z]){re.escape(team)}(?![A-Za-z])", text, re.I)
-        ]
+        teams = _teams_in_text_ordered(text)
         if len(teams) >= 2:
-            keys.add(" vs ".join(teams[:2]))
-            continue
-        if re.search(
-            r"goal|scored|score|beat|defeat|var|penalty|highlights?|世界杯|进球|战胜",
-            text,
-            re.I,
-        ):
-            keys.add(item.story_cluster_id or item.id)
+            keys.add(" vs ".join(sorted(teams[:2])))
     return keys
 
 
@@ -1662,10 +1697,13 @@ def _daily_coverage_gaps(report: GeneratedReport, request: ReportRequest) -> lis
             if evidence_id in evidence_by_id
         ]
         is_upcoming = match_evidence_state(cited) == "upcoming_match"
-        has_completed_copy = has_completed_match_claim(
-            f"{section.heading} {section.body}"
+        section_text = f"{section.heading} {section.body}"
+        has_bad_upcoming_copy = (
+            has_completed_match_claim(section_text)
+            if section.category == "match"
+            else has_result_match_claim(section_text)
         )
-        if is_upcoming and has_completed_copy:
+        if is_upcoming and has_bad_upcoming_copy:
             gaps.append(
                 f"section '{section.heading}' uses pre-match/upcoming evidence "
                 "as if the match was already played"

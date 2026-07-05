@@ -11,6 +11,8 @@ NUMBER_RE = re.compile(
 SENTENCE_RE = re.compile(r"(?<=[。！？!?；;])\s*|\n+")
 LAST_16_RE = re.compile(r"last[-\s]?16|16\s*强|十六强", re.I)
 STORY_CLUSTER_RE = re.compile(r"事件簇\s+story-[^：:]+[:：][^。]*。?")
+CLUSTER_TITLE_RE = re.compile(r"同簇标题[:：][^。]*。?")
+SOURCE_EXCERPT_RE = re.compile(r"来源原摘[:：]\s*")
 
 
 def shorten(value: str, limit: int) -> str:
@@ -133,6 +135,8 @@ def sanitize_text_against_evidence(
 
 def clean_evidence_text(value: str) -> str:
     value = STORY_CLUSTER_RE.sub("", value)
+    value = CLUSTER_TITLE_RE.sub("", value)
+    value = SOURCE_EXCERPT_RE.sub("", value)
     value = value.replace("精简提炼：", "")
     value = value.replace("Continue reading...", "")
     value = value.replace("“", "").replace("”", "")

@@ -28,6 +28,9 @@ uvicorn services.report_api.main:app --reload
   `research-enhancement` SKILL 补许可媒体、球员/比赛结构化信息或给出降级
   提示；Leader 先规划栏目和负责小组，再做交付审查；撰写层只接收
   Leader 批准的栏目合同、精简证据包和增强素材，不重新研究。
+- 日报使用更高证据预算：标准版会为赛果、转会、教练/人物、场外议题保留更多
+  候选和栏目内补搜空间。后续缺口补搜应由 Leader/栏目小组提出 gap，再调用
+  Source Registry 批准的搜索连接器，而不是让最终写作者自由浏览未登记网页。
 - 日报请求会先生成 `time_scope`：`report_date` 固定解释为北京时间自然日，
   资料收集、结构化赛程和最终合稿都使用同一个 UTC 半开窗口。football-data
   已配置时，世界杯日报/足球日报会把该窗口内的赛程和赛果作为结构化证据优先注入。

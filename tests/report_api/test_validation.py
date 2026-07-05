@@ -7,6 +7,7 @@ from services.report_api.claim_ledger import (
 from services.report_api.domain import ReportRequest
 from services.report_api.validation import (
     ReportValidationError,
+    normalize_generated_output,
     validate_generated_report,
 )
 
@@ -132,6 +133,66 @@ def test_daily_gate_rejects_upcoming_fixture_written_as_today_match() -> None:
         assert any("upcoming fixture" in error for error in exc.errors)
     else:
         raise AssertionError("upcoming fixture copy should fail the daily gate")
+
+
+def test_daily_gate_allows_upcoming_fixture_as_offfield_schedule_context() -> None:
+    request = ReportRequest.model_validate(
+        {
+            "report_type": "daily_football_digest",
+            "subject": "今日球脉",
+            "report_date": "2026-07-04",
+            "data_cutoff": "2026-07-04T08:00:00Z",
+            "evidence": [
+                {
+                    "id": "england-mexico-schedule",
+                    "title": "England v Mexico kick-off time confusion angers fans",
+                    "url": "https://www.bbc.co.uk/sport/football/example",
+                    "published_at": "2026-07-04T07:00:00Z",
+                    "source_name": "BBC Sport Football",
+                    "summary": (
+                        "England will face Mexico later in the day after kick-off "
+                        "time confusion angered travelling fans."
+                    ),
+                }
+            ],
+        }
+    )
+    output = {
+        "title": "今日球脉",
+        "executive_summary": "英格兰与墨西哥的开球时间安排成为场外焦点。",
+        "sections": [
+            {
+                "heading": "开球时间混乱引发球迷不满",
+                "body": (
+                    "英格兰对阵墨西哥的赛前开球时间安排经历变化，"
+                    "影响了球迷旅行和观赛计划。"
+                ),
+                "evidence_ids": ["england-mexico-schedule"],
+                "category": "off_field",
+            }
+        ],
+        "warnings": [],
+        "prediction": None,
+    }
+
+    report = validate_generated_report(output, request)
+
+    assert report.sections[0].category == "off_field"
+
+
+def test_normalizer_turns_unsupported_quote_into_paraphrase() -> None:
+    request = base_request()
+    output = valid_report()
+    output["sections"][0]["body"] = (
+        "葡萄牙2-1击败克罗地亚，这被形容为“惊心动魄的夜晚”。"
+    )
+
+    normalized = normalize_generated_output(output, request)
+
+    body = normalized["sections"][0]["body"]
+    assert "“" not in body
+    assert "惊心动魄的夜晚" in body
+    assert any("引号内容" in item for item in normalized["warnings"])
 
 
 def test_daily_gate_rejects_placeholder_match_report_copy() -> None:

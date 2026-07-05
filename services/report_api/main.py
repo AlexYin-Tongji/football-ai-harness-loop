@@ -86,6 +86,12 @@ def public_provider_error_message(exc: LLMProviderError) -> str:
     return "AI 服务连接中断，系统已自动重试；请再次生成"
 
 
+def research_item_budget(request: ConsumerReportRequest) -> int:
+    if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:
+        return {"concise": 12, "standard": 24, "deep": 36}[request.length.value]
+    return {"concise": 6, "standard": 10, "deep": 12}[request.length.value]
+
+
 def create_app(
     settings: Settings | None = None, provider: LLMProvider | None = None
 ) -> FastAPI:
@@ -290,9 +296,7 @@ def create_app(
             )
             bundle = await research_harness.collect(
                 scoped_request,
-                max_items={"concise": 6, "standard": 10, "deep": 12}[
-                    scoped_request.length.value
-                ],
+                max_items=research_item_budget(scoped_request),
             )
             evidence = bundle.evidence
             match_context = None
@@ -450,9 +454,7 @@ def create_app(
             )
             bundle = await research_harness.collect(
                 scoped_request,
-                max_items={"concise": 8, "standard": 16, "deep": 24}[
-                    scoped_request.length.value
-                ],
+                max_items=research_item_budget(scoped_request),
                 progress_callback=lambda phase, progress: job_store.update(
                     job_id,
                     status="running",

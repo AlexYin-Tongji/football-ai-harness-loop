@@ -34,6 +34,8 @@ def normalize_generated_output(
     _normalize_section_categories(normalized)
     _repair_critical_entity_status(normalized, request)
     _prune_unsupported_enrichment(normalized, evidence_by_id)
+    if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:
+        _neutralize_unsupported_direct_quotes(normalized, request)
     prediction = normalized.get("prediction")
     if not isinstance(prediction, dict):
         return normalized
@@ -492,6 +494,47 @@ def _unsupported_direct_quotes(section_body: str, source_text: str) -> list[str]
                 f"direct quote is not present in cited evidence: {quote[:60]}"
             )
     return errors
+
+
+def _neutralize_unsupported_direct_quotes(
+    normalized: dict[str, object], request: ReportRequest
+) -> None:
+    sections = normalized.get("sections")
+    if not isinstance(sections, list):
+        return
+    by_id = {item.id: item for item in request.evidence}
+    changed = False
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        body = section.get("body")
+        evidence_ids = section.get("evidence_ids")
+        if not isinstance(body, str) or not isinstance(evidence_ids, list):
+            continue
+        source_text = " ".join(
+            f"{item.title} {item.summary}"
+            for evidence_id in evidence_ids
+            if isinstance(evidence_id, str)
+            if (item := by_id.get(evidence_id)) is not None
+        )
+        folded_source = source_text.casefold()
+
+        def replace(
+            match: re.Match[str], folded_source: str = folded_source
+        ) -> str:
+            nonlocal changed
+            quote = match.group(1).strip()
+            if quote and quote.casefold() not in folded_source:
+                changed = True
+                return quote
+            return match.group(0)
+
+        section["body"] = DIRECT_QUOTE_RE.sub(replace, body)
+    if changed:
+        _add_warning(
+            normalized,
+            "部分未能在来源中精确定位的引号内容已改为转述。",
+        )
 
 
 FACTUAL_TRIGGER_RE = re.compile(

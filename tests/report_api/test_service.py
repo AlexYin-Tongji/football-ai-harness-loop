@@ -1940,6 +1940,77 @@ def test_deterministic_daily_finalizer_keeps_offfield_columns_visible() -> None:
     assert accepted_payloads[-1]["category_counts"]["off_field"] >= 2
 
 
+def test_deterministic_daily_finalizer_hides_internal_evidence_markup() -> None:
+    request = ReportRequest.model_validate(
+        {
+            "report_type": "daily_football_digest",
+            "subject": "今日球脉｜世界杯",
+            "report_date": "2026-07-04",
+            "data_cutoff": "2026-07-04T08:00:00Z",
+            "evidence": [
+                {
+                    "id": "football-data-aus-egypt",
+                    "title": (
+                        "结构化赛果｜Australia 3-5 Egypt（点球大战后；"
+                        "常规时间 1-1；点球 2-4）（北京时间 2026-07-04 02:00）"
+                    ),
+                    "url": "https://www.football-data.org/",
+                    "published_at": "2026-07-04T08:00:00Z",
+                    "source_name": "football-data.org",
+                    "source_id": "football-data-org",
+                    "trust_tier": "S1_structured_provider",
+                    "evidence_kind": "structured",
+                    "verification_status": "corroborated",
+                    "summary": (
+                        "精简提炼：同簇标题：结构化赛果｜Australia 3-5 Egypt。"
+                        "football facts 结构化赛事实据：北京时间 2026-07-04 全日窗口；"
+                        "北京时间 2026-07-04 02:00，阶段 32强淘汰赛（LAST_32），"
+                        "Australia 3-5 Egypt（点球大战后；常规时间 1-1；点球 2-4），"
+                        "状态 FINISHED，结果方向按对阵顺序记录为 Australia vs Egypt；"
+                        "结论：Egypt。结构化事件：当前无进球者/分钟/红黄牌/换人事件；"
+                        "不得编写未入证据的时间线。"
+                    ),
+                }
+            ],
+            "editorial_plan": [
+                {
+                    "column_id": "match_report",
+                    "title": "赛场战报",
+                    "category": "match",
+                    "specialist_group": "match_report",
+                    "priority": 1,
+                    "evidence_ids": ["football-data-aus-egypt"],
+                }
+            ],
+        }
+    )
+    service = ReportService(
+        provider=SequenceProvider([]),
+        model="deepseek-v4-pro",
+        max_output_tokens=6000,
+        max_attempts=2,
+    )
+
+    result = asyncio.run(
+        service._deterministic_daily_response(
+            request,
+            [],
+            [],
+            attempts=2,
+            recovery_reasons=["forced fallback"],
+        )
+    )
+
+    visible = " ".join(
+        [section.heading + " " + section.body for section in result.report.sections]
+    )
+    assert "同簇标题" not in visible
+    assert "摘要信息" not in visible
+    assert "结构化赛果｜" not in visible
+    assert "Australia 3-5 Egypt" in visible
+    assert "Australia 4-2 Egypt" not in visible
+
+
 def test_daily_digest_recovers_final_transient_with_stable_mode() -> None:
     provider = FinalTransientThenStableProvider()
     service = ReportService(
