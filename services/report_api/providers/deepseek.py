@@ -124,7 +124,87 @@ class DeepSeekProvider:
                         duration_ms,
                     )
                     response.raise_for_status()
-                    break
+                    try:
+                        data = response.json()
+                        choice = data["choices"][0]
+                        content = choice["message"]["content"]
+                        if not content:
+                            raise ValueError("empty model content")
+                        output = json.loads(content)
+                        usage = data.get("usage") or {}
+                    except (
+                        KeyError,
+                        IndexError,
+                        TypeError,
+                        ValueError,
+                        json.JSONDecodeError,
+                    ) as exc:
+                        last_error = exc
+                        request_id = response.headers.get("x-request-id")
+                        logger.warning(
+                            "deepseek invalid json purpose=%s model=%s attempt=%s "
+                            "input_chars=%s max_tokens=%s request_id=%s",
+                            request.purpose,
+                            request.model,
+                            attempt,
+                            input_chars,
+                            payload["max_tokens"],
+                            request_id or "unknown",
+                        )
+                        if attempt == self._max_attempts:
+                            raise LLMProviderError(
+                                "DeepSeek returned an invalid JSON response",
+                                kind="invalid_response",
+                                request_id=request_id,
+                            ) from exc
+                        payload["messages"] = [
+                            *request.messages,
+                            {
+                                "role": "user",
+                                "content": (
+                                    "上一轮响应不是合法 JSON 对象。请重新输出"
+                                    "完整、可被 json.loads 解析的 JSON object；"
+                                    "不要 Markdown，"
+                                    "不要解释，不要省略结尾括号。"
+                                ),
+                            },
+                        ]
+                        payload["max_tokens"] = min(
+                            12000,
+                            max(
+                                int(payload["max_tokens"] * 1.5),
+                                payload["max_tokens"] + 800,
+                            ),
+                        )
+                        continue
+                    if not isinstance(output, dict):
+                        if attempt == self._max_attempts:
+                            raise LLMProviderError(
+                                "DeepSeek JSON root must be an object",
+                                kind="invalid_response",
+                                request_id=response.headers.get("x-request-id")
+                                or data.get("id"),
+                            )
+                        payload["messages"] = [
+                            *request.messages,
+                            {
+                                "role": "user",
+                                "content": (
+                                    "上一轮 JSON 根节点不是 object。"
+                                    "请只输出一个 JSON object。"
+                                ),
+                            },
+                        ]
+                        continue
+                    return LLMResult(
+                        output=output,
+                        provider="deepseek",
+                        model=data.get("model") or request.model,
+                        input_tokens=int(usage.get("prompt_tokens") or 0),
+                        output_tokens=int(usage.get("completion_tokens") or 0),
+                        request_id=response.headers.get("x-request-id")
+                        or data.get("id"),
+                    )
                 except httpx.HTTPStatusError as exc:
                     last_error = exc
                     status = exc.response.status_code
@@ -161,37 +241,7 @@ class DeepSeekProvider:
             raise LLMProviderError(
                 "DeepSeek request failed", kind="transient"
             ) from last_error
-
-        try:
-            data = response.json()
-            choice = data["choices"][0]
-            content = choice["message"]["content"]
-            if not content:
-                raise ValueError("empty model content")
-            output = json.loads(content)
-            usage = data.get("usage") or {}
-        except (
-            KeyError,
-            IndexError,
-            TypeError,
-            ValueError,
-            json.JSONDecodeError,
-        ) as exc:
-            raise LLMProviderError(
-                "DeepSeek returned an invalid JSON response",
-                kind="invalid_response",
-            ) from exc
-
-        if not isinstance(output, dict):
-            raise LLMProviderError(
-                "DeepSeek JSON root must be an object", kind="invalid_response"
-            )
-
-        return LLMResult(
-            output=output,
-            provider="deepseek",
-            model=data.get("model") or request.model,
-            input_tokens=int(usage.get("prompt_tokens") or 0),
-            output_tokens=int(usage.get("completion_tokens") or 0),
-            request_id=response.headers.get("x-request-id") or data.get("id"),
-        )
+        raise LLMProviderError(
+            "DeepSeek returned an invalid JSON response",
+            kind="invalid_response",
+        ) from last_error

@@ -38,15 +38,17 @@ from services.report_api.harness.models import (
 )
 from services.report_api.harness.orchestrator import ReportHarness
 from services.report_api.harness.skills import default_skill_registry
-from services.report_api.jobs import JobView, PersistentJobStore
+from services.report_api.jobs import JobEvent, JobView, PersistentJobStore
+from services.report_api.phase_registry import PhaseView, phase_progress, phase_views
 from services.report_api.providers.base import LLMProvider, LLMProviderError
 from services.report_api.providers.deepseek import DeepSeekProvider
 from services.report_api.providers.mock import MockProvider
-from services.report_api.research_harness import ResearchHarness
+from services.report_api.research_harness import LayerLoopSummary, ResearchHarness
 from services.report_api.service import ReportGenerationError, ReportService
 from services.report_api.structured_match_data import (
     collect_structured_match_context,
 )
+from services.report_api.time_scope import scope_for_request
 
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -105,13 +107,16 @@ def create_app(
     research_harness = ResearchHarness(
         provider,
         model=settings.deepseek_flash_model,
-        max_output_tokens=1000,
+        max_output_tokens=settings.llm_max_output_tokens,
         youtube_api_key=settings.youtube_api_key,
         youtube_channel_ids=settings.youtube_official_channel_ids,
         media_enabled=settings.licensed_media_enabled,
+        structured_match_enabled=settings.football_data_configured,
     )
     repository_root = Path(__file__).resolve().parents[2]
     web_root = repository_root / "apps" / "web"
+    media_root = repository_root / "artifacts" / "media"
+    media_root.mkdir(parents=True, exist_ok=True)
     job_store = PersistentJobStore(repository_root / settings.database_path)
     provider_health: dict[str, str | int | None] = {
         "kind": None,
@@ -155,6 +160,7 @@ def create_app(
         description="Evidence-backed football reports; no social publishing.",
     )
     app.mount("/assets", StaticFiles(directory=web_root / "assets"), name="assets")
+    app.mount("/media", StaticFiles(directory=media_root), name="media")
     app.state.background_tasks = set()
     job_semaphore = asyncio.Semaphore(settings.max_concurrent_jobs)
 
@@ -200,7 +206,10 @@ def create_app(
             "mode": "live" if settings.llm_provider == "deepseek" else "demo",
             "model_status": model_status,
             "model_issue": provider_health["message"] or "",
-            "source": "四层资料流水线（URL 收集 + 精简提炼 + 增强补采 + 撰写整合）",
+            "source": (
+                "今日球脉阶段表（Seed 收集 + 精简 + Leader 分栏 + 小组循环 "
+                "+ 覆盖合稿 + 声明校验）"
+            ),
             "external_services": {
                 "sportmonks": settings.sportmonks_configured,
                 "football_data": settings.football_data_configured,
@@ -276,33 +285,43 @@ def create_app(
         request = await parse_internal_body(raw_request, ConsumerReportRequest)
         assert isinstance(request, ConsumerReportRequest)
         try:
+            scoped_request = request.model_copy(
+                update={"time_scope": scope_for_request(request)}
+            )
             bundle = await research_harness.collect(
-                request,
+                scoped_request,
                 max_items={"concise": 6, "standard": 10, "deep": 12}[
-                    request.length.value
+                    scoped_request.length.value
                 ],
             )
             evidence = bundle.evidence
             match_context = None
-            if request.report_type == ReportType.MATCH_PREDICTION:
+            if scoped_request.report_type == ReportType.MATCH_PREDICTION:
                 try:
                     structured, match_context = await collect_structured_match_context(
-                        request
+                        scoped_request
                     )
                     evidence = [*structured, *evidence]
                 except Exception:
                     match_context = None
+            time_scope = scope_for_request(scoped_request)
             report_request = ReportRequest(
-                **request.model_dump(),
-                data_cutoff=datetime.now(UTC),
+                **scoped_request.model_dump(exclude={"time_scope"}),
+                data_cutoff=time_scope.data_cutoff_utc,
+                time_scope=time_scope,
                 evidence=evidence,
                 match_context=match_context,
                 collection_warnings=bundle.warnings,
+                previous_story_memory=job_store.recent_story_memory(
+                    scoped_request.report_type.value
+                ),
+                editorial_plan=bundle.editorial_plan,
                 prefetched_media_assets=bundle.media_assets,
             )
             return await harness.run(
                 report_request,
                 tool_rounds_used=bundle.tool_rounds_used + (1 if match_context else 0),
+                research_layer_runs=bundle.layer_runs,
             )
         except EvidenceCollectionError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -319,30 +338,135 @@ def create_app(
         job_id: str, request: ConsumerReportRequest
     ) -> None:
         try:
+            def record_progress(
+                phase: str, progress: int, payload: dict | None = None
+            ) -> None:
+                event_payload = dict(payload) if isinstance(payload, dict) else None
+                checkpoint = None
+                if event_payload:
+                    checkpoint = event_payload.pop("checkpoint", None)
+                if isinstance(checkpoint, dict):
+                    checkpoint_name = checkpoint.get("name")
+                    checkpoint_payload = checkpoint.get("payload")
+                    if isinstance(checkpoint_name, str) and isinstance(
+                        checkpoint_payload, dict
+                    ):
+                        job_store.save_checkpoint(
+                            job_id, checkpoint_name, checkpoint_payload
+                        )
+                job_store.update(
+                    job_id,
+                    status="running",
+                    phase=phase,
+                    progress=progress,
+                    detail=f"{phase} 阶段已更新。",
+                    payload=event_payload,
+                )
+
+            async def finish_report_request(
+                report_request: ReportRequest,
+                *,
+                tool_rounds_used: int,
+                layer_runs: list[LayerLoopSummary],
+                resumed_from_checkpoint: bool = False,
+            ) -> None:
+                next_phase = (
+                    "prediction_council"
+                    if request.report_type.value == "match_prediction"
+                    else "research_desks"
+                )
+                job_store.update(
+                    job_id,
+                    status="running",
+                    phase=next_phase,
+                    progress=phase_progress(next_phase, 55),
+                    detail=(
+                        "从检查点恢复，进入专栏研究或多席研判阶段。"
+                        if resumed_from_checkpoint
+                        else "进入专栏研究或多席研判阶段。"
+                    ),
+                    payload={"resumed_from_checkpoint": resumed_from_checkpoint},
+                )
+                result = await harness.run(
+                    report_request,
+                    tool_rounds_used=tool_rounds_used,
+                    research_layer_runs=layer_runs,
+                    progress_callback=record_progress,
+                )
+                result_payload = result.model_dump(mode="json")
+                job_store.save_story_memory(request.report_type.value, result_payload)
+                job_store.update(
+                    job_id,
+                    status="completed",
+                    phase="completed",
+                    progress=phase_progress("completed", 100),
+                    result=result_payload,
+                    detail="报告已通过质量门并保存。",
+                    payload={
+                        "report_id": result.report.id,
+                        "resumed_from_checkpoint": resumed_from_checkpoint,
+                        "trace_steps": [
+                            {
+                                "name": step.name,
+                                "label": step.label,
+                                "detail": step.detail,
+                            }
+                            for step in result.run.steps
+                        ],
+                    },
+                )
+
+            checkpoint = job_store.latest_checkpoint(
+                job_id, {"report_request_ready"}
+            )
+            if checkpoint is not None:
+                checkpoint_payload = checkpoint.payload
+                report_request = ReportRequest.model_validate(
+                    checkpoint_payload["report_request"]
+                )
+                layer_runs = [
+                    LayerLoopSummary.model_validate(item)
+                    for item in checkpoint_payload.get("layer_runs", [])
+                ]
+                await finish_report_request(
+                    report_request,
+                    tool_rounds_used=int(
+                        checkpoint_payload.get("tool_rounds_used") or 0
+                    ),
+                    layer_runs=layer_runs,
+                    resumed_from_checkpoint=True,
+                )
+                return
+
             job_store.update(
                 job_id,
                 status="running",
                 phase="collecting_sources",
-                progress=10,
+                progress=phase_progress("collecting_sources", 10),
+                detail="开始运行资料流水线。",
+            )
+            scoped_request = request.model_copy(
+                update={"time_scope": scope_for_request(request)}
             )
             bundle = await research_harness.collect(
-                request,
+                scoped_request,
                 max_items={"concise": 8, "standard": 16, "deep": 24}[
-                    request.length.value
+                    scoped_request.length.value
                 ],
                 progress_callback=lambda phase, progress: job_store.update(
                     job_id,
                     status="running",
                     phase=phase,
                     progress=progress,
+                    detail=f"{phase} 阶段已更新。",
                 ),
             )
             evidence = bundle.evidence
             match_context = None
-            if request.report_type == ReportType.MATCH_PREDICTION:
+            if scoped_request.report_type == ReportType.MATCH_PREDICTION:
                 try:
                     structured, match_context = await collect_structured_match_context(
-                        request
+                        scoped_request
                     )
                     evidence = [*structured, *evidence]
                 except Exception:
@@ -351,54 +475,66 @@ def create_app(
                 job_id,
                 status="running",
                 phase="evidence_ready",
-                progress=44,
+                progress=phase_progress("evidence_ready", 44),
+                detail=(
+                    f"证据包 {len(evidence)} 条；媒体候选 "
+                    f"{len(bundle.media_assets)} 个；栏目 "
+                    f"{len(bundle.editorial_plan)} 个。"
+                ),
+                payload={
+                    "evidence_count": len(evidence),
+                    "media_assets": len(bundle.media_assets),
+                    "editorial_columns": [
+                        {
+                            "id": column.column_id,
+                            "title": column.title,
+                            "group": column.specialist_group,
+                            "evidence_ids": column.evidence_ids,
+                        }
+                        for column in bundle.editorial_plan
+                    ],
+                    "warnings": bundle.warnings[:8],
+                },
             )
+            time_scope = scope_for_request(scoped_request)
             report_request = ReportRequest(
-                **request.model_dump(),
-                data_cutoff=datetime.now(UTC),
+                **scoped_request.model_dump(exclude={"time_scope"}),
+                data_cutoff=time_scope.data_cutoff_utc,
+                time_scope=time_scope,
                 evidence=evidence,
                 match_context=match_context,
                 collection_warnings=bundle.warnings,
+                previous_story_memory=job_store.recent_story_memory(
+                    scoped_request.report_type.value
+                ),
+                editorial_plan=bundle.editorial_plan,
                 prefetched_media_assets=bundle.media_assets,
             )
-            job_store.update(
+            tool_rounds_used = bundle.tool_rounds_used + (1 if match_context else 0)
+            job_store.save_checkpoint(
                 job_id,
-                status="running",
-                phase=(
-                    "prediction_council"
-                    if request.report_type.value == "match_prediction"
-                    else "research_desks"
-                ),
-                progress=55,
+                "report_request_ready",
+                {
+                    "report_request": report_request.model_dump(mode="json"),
+                    "tool_rounds_used": tool_rounds_used,
+                    "layer_runs": [
+                        layer.model_dump(mode="json") for layer in bundle.layer_runs
+                    ],
+                },
             )
-
-            def record_progress(phase: str, progress: int) -> None:
-                job_store.update(
-                    job_id,
-                    status="running",
-                    phase=phase,
-                    progress=progress,
-                )
-
-            result = await harness.run(
+            await finish_report_request(
                 report_request,
-                tool_rounds_used=bundle.tool_rounds_used + (1 if match_context else 0),
-                progress_callback=record_progress,
-            )
-            job_store.update(
-                job_id,
-                status="completed",
-                phase="completed",
-                progress=100,
-                result=result.model_dump(mode="json"),
+                tool_rounds_used=tool_rounds_used,
+                layer_runs=bundle.layer_runs,
             )
         except EvidenceCollectionError as exc:
             job_store.update(
                 job_id,
                 status="failed",
                 phase="failed",
-                progress=100,
+                progress=phase_progress("failed", 100),
                 error=str(exc) or "资料收集失败，请稍后重试",
+                detail=str(exc) or "资料收集失败，请稍后重试",
             )
         except ReportGenerationError as exc:
             logger.warning("research job %s stopped by quality gate: %s", job_id, exc)
@@ -406,8 +542,9 @@ def create_app(
                 job_id,
                 status="failed",
                 phase="failed",
-                progress=100,
+                progress=phase_progress("failed", 100),
                 error="AI 研究未能通过质量校验，请稍后重试",
+                detail=str(exc),
             )
         except LLMProviderError as exc:
             record_provider_error(exc)
@@ -422,17 +559,27 @@ def create_app(
                 job_id,
                 status="failed",
                 phase="failed",
-                progress=100,
+                progress=phase_progress("failed", 100),
                 error=public_provider_error_message(exc),
+                detail=public_provider_error_message(exc),
+                payload={
+                    "provider_error_kind": exc.kind,
+                    "status_code": exc.status_code,
+                },
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("research job %s stopped by an internal error", job_id)
             job_store.update(
                 job_id,
                 status="failed",
                 phase="failed",
-                progress=100,
+                progress=phase_progress("failed", 100),
                 error="任务遇到内部错误并已安全停止，请稍后重试",
+                detail="任务遇到内部错误并已安全停止，请稍后重试",
+                payload={
+                    "error_type": type(exc).__name__,
+                    "message": str(exc)[:500],
+                },
             )
 
     async def execute_research_job(job_id: str, request: ConsumerReportRequest) -> None:
@@ -440,17 +587,30 @@ def create_app(
             job_id,
             status="queued",
             phase="waiting_for_capacity",
-            progress=2,
+            progress=phase_progress("waiting_for_capacity", 2),
+            detail="等待后台研究名额。",
         )
         async with job_semaphore:
             await execute_research_job_inner(job_id, request)
 
+    def schedule_research_job(job_id: str, request: ConsumerReportRequest) -> None:
+        task = asyncio.create_task(execute_research_job(job_id, request))
+        app.state.background_tasks.add(task)
+        task.add_done_callback(app.state.background_tasks.discard)
+
+    @app.on_event("startup")
+    async def resume_interrupted_research_jobs() -> None:
+        for job in job_store.list_resumable():
+            try:
+                request = job_store.request_for_job(job.id)
+            except (KeyError, ValueError):
+                continue
+            schedule_research_job(job.id, request)
+
     @app.post("/v1/research/jobs", response_model=JobView, status_code=202)
     async def create_research_job(request: ConsumerReportRequest) -> JobView:
         job = job_store.create(request)
-        task = asyncio.create_task(execute_research_job(job.id, request))
-        app.state.background_tasks.add(task)
-        task.add_done_callback(app.state.background_tasks.discard)
+        schedule_research_job(job.id, request)
         return job
 
     @app.get("/v1/research/jobs/{job_id}", response_model=JobView)
@@ -459,6 +619,14 @@ def create_app(
             return job_store.get(job_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="job not found") from exc
+
+    @app.get("/v1/research/jobs/{job_id}/events", response_model=list[JobEvent])
+    async def get_research_job_events(job_id: str) -> list[JobEvent]:
+        try:
+            job_store.get(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="job not found") from exc
+        return job_store.list_events(job_id)
 
     @app.get("/v1/admin/jobs", response_model=list[JobView])
     async def admin_jobs(
@@ -540,6 +708,10 @@ def create_app(
                 "运行 Trace 不保存隐藏思维链",
             ],
         )
+
+    @app.get("/v1/system/phases/{report_type}", response_model=list[PhaseView])
+    async def system_phases(report_type: ReportType) -> list[PhaseView]:
+        return phase_views(report_type)
 
     return app
 

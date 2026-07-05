@@ -58,6 +58,30 @@ class MockProvider:
                 provider="mock",
                 model=request.model,
             )
+        if request.purpose == "leader_column_plan":
+            evidence_ids = request.metadata.get("evidence_ids") or []
+            first = evidence_ids[0] if evidence_ids else "ev-1"
+            return LLMResult(
+                output={
+                    "columns": [
+                        {
+                            "column_id": "match_report",
+                            "title": "赛场主线",
+                            "category": "match",
+                            "specialist_group": "match_report",
+                            "priority": 1,
+                            "evidence_ids": [first],
+                            "search_iterations": 2,
+                            "enrichment_targets": [],
+                            "media_targets": ["match report image"],
+                            "instructions": "mock Leader 将赛事材料交给战报小组。",
+                        }
+                    ],
+                    "warnings": ["当前为 mock Leader 栏目规划。"],
+                },
+                provider="mock",
+                model=request.model,
+            )
         report_type = request.metadata["report_type"]
         evidence_id = request.metadata["evidence_ids"][0]
         subject = request.metadata["subject"]

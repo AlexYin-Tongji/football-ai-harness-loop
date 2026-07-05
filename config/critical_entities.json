@@ -1,0 +1,21 @@
+{
+  "version": "2026-07-03",
+  "entities": [
+    {
+      "id": "diogo-jota",
+      "canonical_name": "Diogo Jota",
+      "preferred_name": "若塔",
+      "entity_type": "player",
+      "aliases": ["Diogo Jota", "Jota", "若塔", "迪奥戈若塔", "迪奥戈·若塔"],
+      "critical_status": "deceased",
+      "event_date": "2025-07-03T00:00:00Z",
+      "source_id": "liverpool",
+      "source_name": "Liverpool FC",
+      "source_url": "https://www.liverpoolfc.com/news/diogo-jota-1996-2025",
+      "source_title": "Diogo Jota: 1996-2025",
+      "summary": "Liverpool FC confirmed that Diogo Jota passed away at age 28 following a road traffic accident in Spain, alongside his brother Andre Silva.",
+      "report_summary": "利物浦官方确认，Diogo Jota（若塔）已于2025年7月3日去世，官方说明他是在西班牙交通事故后离世，同行的兄弟 Andre Silva 也不幸遇难。",
+      "editorial_rule": "Any report mentioning this player must describe the official source-backed death, not injury absence, squad rotation, transfer availability, or ordinary match unavailability."
+    }
+  ]
+}

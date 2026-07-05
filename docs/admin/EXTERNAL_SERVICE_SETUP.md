@@ -83,7 +83,8 @@ Sportmonks token 是否“已配置”不等于套餐覆盖了目标联赛。管
 - `ADMIN_TOKEN`：由部署者本地生成的高强度随机值，不需要向第三方申请。
 - `DEEPSEEK_MAX_CONCURRENCY=2`：系统稳定性参数，默认已配置。
 - `LLM_TIMEOUT_SECONDS=120`：深度报告建议值；不是密钥。
-- `LICENSED_MEDIA_ENABLED=true`：媒体总开关。
+- `FOOTPULSE_MEDIA_PIPELINE_ENABLED=true`：媒体总开关，默认关闭；开启后仍只允许
+  Source Registry 批准的许可图片和官方视频元数据。
 
 ## 安全交付格式
 
@@ -94,6 +95,7 @@ DEEPSEEK_API_KEY=<secret>
 SPORTMONKS_API_TOKEN=<secret>
 YOUTUBE_API_KEY=<secret>
 YOUTUBE_OFFICIAL_CHANNEL_IDS=<channel-id-1>,<channel-id-2>
+FOOTPULSE_MEDIA_PIPELINE_ENABLED=false
 NEWS_API_KEY=<optional-secret>
 FOOTBALL_DATA_API_KEY=<optional-secret>
 EVENT_REGISTRY_API_KEY=<optional-secret>

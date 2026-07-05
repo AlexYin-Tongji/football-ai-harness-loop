@@ -19,7 +19,7 @@ V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AG
 - 世界杯日报：整理赛果、焦点事件、球队动态和当日赛程，供用户二次编辑。
 - 比赛预测报告：用结构化数据与大模型研判生成概率、依据和风险提示。
 - 人物与比赛故事：在证据允许时补球员画像、关联球队、数据卡和进球时间线。
-- 许可媒体：展示带许可证/署名的 Commons 图片，并可接入官方频道可嵌入视频；不下载视频。
+- 许可媒体：默认关闭；可显式开启带许可证/署名的 Commons 图片和官方频道可嵌入视频。
 - 导出：复制 Markdown/纯文本或下载 JSON；产品不自动发布社媒。
 
 ## 文档入口
@@ -30,11 +30,19 @@ V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AG
 - [Harness / Loop / Memory / Skills / MCP 蓝图](docs/architecture/HARNESS_LOOP_BLUEPRINT.md)
 - [Harness / Loop 架构决策](docs/adr/0001-harness-loop-architecture.md)
 - [API-first 报告决策](docs/adr/0002-api-first-report-workbench.md)
+- [来源 Playbook 与编辑型 Agent 刷新](docs/adr/0013-source-playbooks-and-editorial-agent-refresh.md)
+- [赛事视觉与分层检查点决策](docs/adr/0014-match-visuals-and-layer-checkpoints.md)
+- [Leader 监督层与多 Agent 交接合同](docs/adr/0015-leader-supervisor-agent-architecture.md)
+- [Leader 分栏小组与事实护栏降权](docs/adr/0016-leader-column-teams-and-guardrail-facts.md)
+- [专栏小组内循环与媒体缓存交付](docs/adr/0017-column-team-loops-and-media-cache.md)
+- [产品级 Trace、Claim 质量门与 Agent Eval](docs/adr/0018-product-trace-claim-eval-and-recoverable-jobs.md)
+- [北京时间窗口与结构化赛程优先](docs/adr/0019-beijing-time-scope-and-structured-matches.md)
 - [预测模型设计](docs/ml/MATCH_PREDICTION.md)
 - [数据源与内容合规](docs/data/SOURCE_POLICY.md)
 - [外部服务配置清单](docs/admin/EXTERNAL_SERVICE_SETUP.md)
 - [世界杯冲刺路线图](docs/product/ROADMAP.md)
 - [V4 严格产品评审与竞品差距](docs/product/V4_PRODUCT_REVIEW.md)
+- [《今日球脉》日报写法基准](docs/product/DAILY_REPORT_STYLE_BENCHMARK.md)
 - [研发协作规范](CONTRIBUTING.md)
 
 ## 原则

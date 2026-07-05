@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
+from services.report_api.claim_ledger import build_numeric_claim_ledger
 from services.report_api.domain import DeskDraft, Evidence, ReportRequest
 
 StageName = Literal[
@@ -32,6 +33,7 @@ DAILY_FINAL_CONTRACT = {
             "heading": "栏目标题",
             "body": "中文正文；同一 story_cluster_id 不重复写；传闻必须显式标注",
             "evidence_ids": ["只能使用 evidence_index 中存在的 id"],
+            "category": "match / transfer / off_field / context",
         }
     ],
     "warnings": ["覆盖不足、来源冲突、模型降级或发布前复核事项"],
@@ -57,20 +59,20 @@ def stage_policy(
     length: str = "standard",
 ) -> ModelStagePolicy:
     if stage == "daily_final":
-        output = {"concise": 1800, "standard": 2600, "deep": 3200}[length]
+        output = {"concise": 4200, "standard": 6000, "deep": 8000}[length]
         return ModelStagePolicy(
             stage=stage,
             thinking_enabled=False,
             max_output_tokens=min(configured_output_tokens, output),
-            max_input_chars=18_000,
+            max_input_chars=28_000,
         )
     if stage == "daily_stable_final":
-        output = {"concise": 1400, "standard": 2200, "deep": 2600}[length]
+        output = {"concise": 3200, "standard": 5000, "deep": 6500}[length]
         return ModelStagePolicy(
             stage=stage,
             thinking_enabled=False,
             max_output_tokens=min(configured_output_tokens, output),
-            max_input_chars=14_000,
+            max_input_chars=24_000,
         )
     if stage == "prediction_judge":
         return ModelStagePolicy(
@@ -83,7 +85,7 @@ def stage_policy(
         return ModelStagePolicy(
             stage=stage,
             thinking_enabled=True,
-            max_output_tokens=min(configured_output_tokens, 3000),
+            max_output_tokens=min(configured_output_tokens, 5000),
             max_input_chars=28_000,
         )
     if stage == "prediction_opinion":
@@ -152,7 +154,7 @@ def final_skill_contract(skill_instructions: str | None) -> str:
         return ""
     return (
         "本阶段只执行最终合稿，不重新研究。必须保留来源引用、传闻标签、"
-        "证据边界、人工复核提示和不自动发布边界；不得新增证据外事实。"
+        "证据边界和必要的人工复核提示；不得新增证据外事实。"
     )
 
 
@@ -164,6 +166,7 @@ def _clip_json_payload(
         return text
     payload = dict(payload)
     payload["evidence_index"] = evidence_index(raw_evidence, summary_chars=90)
+    payload["numeric_claim_ledger"] = payload.get("numeric_claim_ledger", [])[:40]
     text = json.dumps(payload, ensure_ascii=False)
     if len(text) <= max_chars:
         return text
@@ -199,6 +202,7 @@ def _clip_json_payload(
         }
         for item in raw_evidence
     ]
+    payload["numeric_claim_ledger"] = payload.get("numeric_claim_ledger", [])[:16]
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -215,9 +219,18 @@ def build_daily_final_messages(
         "subject": request.subject,
         "report_date": request.report_date.isoformat(),
         "data_cutoff": request.data_cutoff.isoformat(),
+        "time_scope": (
+            request.time_scope.model_dump(mode="json") if request.time_scope else None
+        ),
         "length": request.length.value,
         "focus": request.focus,
+        "previous_story_memory": request.previous_story_memory,
+        "collection_warnings": request.collection_warnings,
+        "leader_editorial_plan": [
+            column.model_dump(mode="json") for column in request.editorial_plan
+        ],
         "evidence_index": evidence_index(request.evidence),
+        "numeric_claim_ledger": build_numeric_claim_ledger(request.evidence),
         "Harness 生成的确定性合稿提纲": outline_json,
         "desk_drafts": compact_desk_drafts(desk_drafts),
     }
@@ -232,6 +245,38 @@ def build_daily_final_messages(
                 "证据索引，不重新研究，不扩写证据外事实。输出严格 JSON，"
                 "不要 Markdown 代码围栏。正文必须是简体中文，evidence_id "
                 "只能出现在 evidence_ids 数组里，不能写进可见正文。"
+                "report_date 是北京时间自然日；如果 payload 含 time_scope，"
+                "所有“今天/昨日/明日/近期”判断必须服从 time_scope.local_window_label、"
+                "window_start_utc、window_end_utc 和 data_cutoff_utc，"
+                "不得按服务器日期、英美发布时间或模型常识自行换日。"
+                "写作要像给球迷和内容创作者的一份清楚报告：开头抓住今天"
+                "真正变化，段落里交代球员/球队背景、比赛转折和下一步看点；"
+                "最终日报必须按 3-5 个大栏目组织，但 sections 是读者看到的二级标题；"
+                "战报栏目必须每场比赛单独一个二级标题，转会栏目必须每个重点转会"
+                "单独一个二级标题，不要把多场比赛或多条转会揉成一段。"
+                "栏目顺序和标题优先服从 leader_editorial_plan；总标题只概括"
+                "最高优先级的主线栏目，不得把事实护栏或背景悼念写成标题钩子。"
+                "栏目优先使用 category=match、transfer、off_field 或 context；"
+                "每个二级标题正文写成 180-420 字的完整段落。"
+                "比赛事件按“何时何地、谁对谁、谁在第几分钟用什么方式进球、"
+                "比分如何变化、比赛过程和晋级/淘汰影响”写清楚，"
+                "方便前端把对应图片或官方视频插在该事件下方；"
+                "来源边界自然嵌入正文，不要把报告写成安全声明。"
+                "previous_story_memory 只用于判断“相比上一版/昨日是否有变化”，"
+                "不能单独当作事实来源；如果今天证据没有支持，不能复写成今天事实。"
+                "必须区分已完赛证据和赛前证据：preview、arrival、kickoff、hotel、schedule、"
+                "team news、hostile reception 只能写成赛前/场外/赛程内容，不得写成"
+                "今日已开赛、已经完成或最终比分。"
+                "质量门会逐句检查 claim：凡是比分、分钟、金额、年份、出场、"
+                "进球、合同等数字，必须原样来自对应 evidence_ids 的证据摘要；"
+                "优先从 numeric_claim_ledger 选择可写数字，若某个数字不在该小节"
+                "引用的 evidence_ids 对应 ledger 中，就删除数字或改写成无数字表达；"
+                "没有证据的球员履历、教练成绩和赛事数据宁可写未知。"
+                "没有出现在证据索引或分桌草稿里的发布会、社交媒体、悼念方式、"
+                "首发安排、赛程日期、主帅/队长表态和直接引语，一律不要写；"
+                "证据里没有原文引语时只能转述，不得加引号。"
+                "正文不要用“关键事件尚待确认、暂未明朗、比赛进程存疑、未知、待补充”"
+                "来填充小节；这类缺口只放 warnings。"
                 "unverified_lead 必须写成传闻、据报道、未核实、线索或尚未确认。"
                 "同一 story_cluster_id 只写一次，保留重要分歧和未知项。"
                 "输出契约如下："

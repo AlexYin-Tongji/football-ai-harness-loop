@@ -35,7 +35,8 @@ class ReportHarness:
         self,
         request: ReportRequest,
         tool_rounds_used: int = 0,
-        progress_callback: Callable[[str, int], None] | None = None,
+        research_layer_runs: list[object] | None = None,
+        progress_callback: Callable[..., None] | None = None,
     ) -> HarnessRunResponse:
         skill = self._skills.for_report_type(request.report_type)
         now = datetime.now(UTC)
@@ -67,14 +68,32 @@ class ReportHarness:
                 label="构建时间点上下文",
                 detail=f"已装载 {len(request.evidence)} 条带时间证据",
             )
+            self._append_research_layer_steps(trace, research_layer_runs or [])
+            if request.editorial_plan:
+                assignments = [
+                    f"{column.title}:{column.specialist_group}"
+                    for column in request.editorial_plan[:6]
+                ]
+                self._complete_step(
+                    trace,
+                    name="column_teams",
+                    label="Leader 分派专栏小组",
+                    detail=(
+                        f"{len(request.editorial_plan)} 个栏目；"
+                        + "；".join(assignments)
+                    ),
+                )
 
             trace.phase = "generate"
             self._memory.put(trace)
             generation_started = datetime.now(UTC)
             started = perf_counter()
+            generation_attempts = (
+                3 if request.report_type.value == "daily_football_digest" else 2
+            )
             report = await self._report_service.generate(
                 request,
-                max_attempts=min(2, skill.max_model_rounds),
+                max_attempts=min(generation_attempts, skill.max_model_rounds),
                 skill_instructions=skill.instructions,
                 progress_callback=progress_callback,
             )
@@ -140,6 +159,32 @@ class ReportHarness:
         trace.steps.append(step)
         trace.phase = step.name
         self._memory.put(trace)
+
+    def _append_research_layer_steps(
+        self, trace: HarnessTrace, research_layer_runs: list[object]
+    ) -> None:
+        for layer in research_layer_runs:
+            name = str(getattr(layer, "name", "research_layer"))
+            label = str(getattr(layer, "label", "资料层检查点"))
+            status = str(getattr(layer, "status", "completed"))
+            checkpoints = getattr(layer, "checkpoints", []) or []
+            warnings = getattr(layer, "warnings", []) or []
+            detail_parts = [
+                f"status={status}",
+                f"input={getattr(layer, 'input_count', 0)}",
+                f"output={getattr(layer, 'output_count', 0)}",
+                f"model_rounds={getattr(layer, 'model_rounds', 0)}",
+                f"tool_rounds={getattr(layer, 'tool_rounds', 0)}",
+                *[str(item) for item in checkpoints[:4]],
+            ]
+            if warnings:
+                detail_parts.append(f"warnings={len(warnings)}")
+            self._complete_step(
+                trace,
+                name=f"research_{name}",
+                label=label,
+                detail="；".join(detail_parts),
+            )
 
     def _failed_step(self, trace: HarnessTrace, exc: Exception) -> None:
         timestamp = datetime.now(UTC)

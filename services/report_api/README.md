@@ -21,12 +21,20 @@ uvicorn services.report_api.main:app --reload
 
 - `POST /v1/research/jobs` 创建任务并立即返回任务 ID。
 - `GET /v1/research/jobs/{id}` 返回真实阶段、进度和最终报告。
-- 后端先经过四层资料流水线：URL 收集层生成受治理检索计划并调用已登记的
+- `GET /v1/research/jobs/{id}/events` 返回产品级运行事件，用于查看每层输入、
+  产出、降级和最终 Trace 摘要。
+- 后端先经过五层资料流水线：URL 收集层生成受治理检索计划并调用已登记的
   RSS、GDELT、可选 NewsAPI；资料精简层压缩成可引用短证据；增强层按
   `research-enhancement` SKILL 补许可媒体、球员/比赛结构化信息或给出降级
-  提示；撰写层只接收精简证据包和增强素材，不重新研究。
+  提示；Leader 先规划栏目和负责小组，再做交付审查；撰写层只接收
+  Leader 批准的栏目合同、精简证据包和增强素材，不重新研究。
+- 日报请求会先生成 `time_scope`：`report_date` 固定解释为北京时间自然日，
+  资料收集、结构化赛程和最终合稿都使用同一个 UTC 半开窗口。football-data
+  已配置时，世界杯日报/足球日报会把该窗口内的赛程和赛果作为结构化证据优先注入。
 - GIF、新闻配图、社媒截图和比赛片段当前没有批准自动抓取来源；增强层只会
   写入人工补充提示，不会用未登记来源替代。
+- 图片/视频媒体管线默认关闭。需要重新启用时设置
+  `FOOTPULSE_MEDIA_PIPELINE_ENABLED=true`，并继续遵守 Source Registry 的许可和相关性校验。
 - 同步兼容接口和可直接提交 evidence 的调试接口默认隐藏；只有设置
   `FOOTPULSE_INTERNAL_API_ENABLED=true` 时才启用。
 - 本地任务数据库默认为 `data/footpulse.db`，不会进入 Git。
@@ -60,6 +68,8 @@ uvicorn services.report_api.main:app --reload
 
 - 当前 MCP 能力表已定义；Sportmonks、football-data 与许可媒体工具按密钥安全降级。
 - 页面使用批准来源和结构化 evidence 跑通闭环。
-- 本地 Beta 使用 SQLite WAL 持久化任务、结果与审计事件；生产版将使用
-  PostgreSQL/Temporal 检查点。
+- 本地 Beta 使用 SQLite WAL 持久化任务、事件、故事记忆、结果和审计记录；
+  服务重启时会把未完成任务重新放回恢复队列；如果已写入
+  `report_request_ready` 检查点，会跳过资料收集并直接恢复撰写/质量门。
+  生产版将把同一阶段和事件合同映射到 PostgreSQL/Temporal 检查点。
 - 服务不读取社媒凭据，也不提供自动发布工具。

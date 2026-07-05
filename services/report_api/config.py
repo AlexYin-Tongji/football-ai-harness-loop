@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DOTENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+DEFAULT_OFFICIAL_VIDEO_CHANNEL_IDS = (
+    "UCpcTrCXblq78GZrTUTLWeBw",  # FIFA
+    "UCCc3h5l7RvGzCAbZ1ApxOYw",  # Mediacorp Sports, official highlights partner
+)
 
 
 def _default_dotenv_path() -> Path:
@@ -67,7 +71,7 @@ class Settings:
     deepseek_max_concurrency: int = 2
     llm_timeout_seconds: float = 120.0
     llm_max_output_tokens: int = 6000
-    report_max_attempts: int = 2
+    report_max_attempts: int = 3
     admin_enabled: bool = False
     admin_token: str | None = None
     internal_api_enabled: bool = False
@@ -78,7 +82,7 @@ class Settings:
     news_api_configured: bool = False
     youtube_api_key: str | None = None
     youtube_official_channel_ids: tuple[str, ...] = ()
-    licensed_media_enabled: bool = True
+    licensed_media_enabled: bool = False
     google_vision_configured: bool = False
 
     @classmethod
@@ -95,7 +99,7 @@ class Settings:
             deepseek_max_concurrency=int(os.getenv("DEEPSEEK_MAX_CONCURRENCY", "2")),
             llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "120")),
             llm_max_output_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "6000")),
-            report_max_attempts=int(os.getenv("REPORT_MAX_ATTEMPTS", "2")),
+            report_max_attempts=int(os.getenv("REPORT_MAX_ATTEMPTS", "3")),
             admin_enabled=os.getenv("ADMIN_ENABLED", "false").lower() == "true",
             admin_token=os.getenv("ADMIN_TOKEN") or None,
             internal_api_enabled=os.getenv("FOOTPULSE_INTERNAL_API_ENABLED", "false")
@@ -110,11 +114,22 @@ class Settings:
             news_api_configured=bool(os.getenv("NEWS_API_KEY")),
             youtube_api_key=os.getenv("YOUTUBE_API_KEY") or None,
             youtube_official_channel_ids=tuple(
-                item.strip()
-                for item in os.getenv("YOUTUBE_OFFICIAL_CHANNEL_IDS", "").split(",")
-                if item.strip()
+                dict.fromkeys(
+                    [
+                        *(
+                            item.strip()
+                            for item in os.getenv(
+                                "YOUTUBE_OFFICIAL_CHANNEL_IDS", ""
+                            ).split(",")
+                            if item.strip()
+                        ),
+                        *DEFAULT_OFFICIAL_VIDEO_CHANNEL_IDS,
+                    ]
+                )
             ),
-            licensed_media_enabled=os.getenv("LICENSED_MEDIA_ENABLED", "true").lower()
+            licensed_media_enabled=os.getenv(
+                "FOOTPULSE_MEDIA_PIPELINE_ENABLED", "false"
+            ).lower()
             == "true",
             google_vision_configured=bool(
                 os.getenv("GOOGLE_CLOUD_VISION_API_KEY")

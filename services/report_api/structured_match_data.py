@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from services.mcp_servers.football_data import list_competition_matches
 from services.report_api.domain import (
@@ -11,7 +11,9 @@ from services.report_api.domain import (
     Evidence,
     MatchModelContext,
     RecentMatchSample,
+    ReportType,
 )
+from services.report_api.time_scope import format_beijing, scope_for_request
 
 
 def _teams_from_subject(subject: str, matches: list[dict]) -> tuple[str, str] | None:
@@ -48,17 +50,150 @@ def _score(match: dict) -> tuple[int, int] | None:
     return None
 
 
+def _kickoff_utc(match: dict) -> datetime | None:
+    raw = str(match.get("utc_date") or "")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _score_summary(match: dict) -> str:
+    result = _score(match)
+    home = str(match.get("home") or "TBD")
+    away = str(match.get("away") or "TBD")
+    status = str(match.get("status") or "UNKNOWN")
+    score = match.get("score") or {}
+    duration = str(score.get("duration") or "REGULAR")
+    if result is None:
+        return f"{home} vs {away}，状态 {status}，未记录完场比分"
+    home_goals, away_goals = result
+    if duration == "PENALTY_SHOOTOUT":
+        regular = score.get("regularTime") or {}
+        penalties = score.get("penalties") or {}
+        return (
+            f"{home} {home_goals}-{away_goals} {away}（点球大战后；"
+            f"常规时间 {regular.get('home')}-{regular.get('away')}，"
+            f"点球 {penalties.get('home')}-{penalties.get('away')}）"
+        )
+    if duration == "EXTRA_TIME":
+        regular = score.get("regularTime") or {}
+        return (
+            f"{home} {home_goals}-{away_goals} {away}（加时后；"
+            f"常规时间 {regular.get('home')}-{regular.get('away')}）"
+        )
+    return f"{home} {home_goals}-{away_goals} {away}"
+
+
+def _winner_text(match: dict) -> str:
+    result = _score(match)
+    if result is None:
+        return "未开赛或未完赛"
+    home_goals, away_goals = result
+    home = str(match.get("home") or "主队")
+    away = str(match.get("away") or "客队")
+    if home_goals > away_goals:
+        return f"{home} 胜"
+    if away_goals > home_goals:
+        return f"{away} 胜"
+    return "平局"
+
+
+def _daily_match_evidence_id(match: dict, kickoff: datetime) -> str:
+    seed = "|".join(
+        [
+            str(match.get("id") or ""),
+            str(match.get("home") or ""),
+            str(match.get("away") or ""),
+            kickoff.isoformat(),
+        ]
+    )
+    return "football-data-match-" + hashlib.sha256(seed.encode()).hexdigest()[:12]
+
+
+def _daily_match_evidence(match: dict, *, published_at: datetime) -> Evidence | None:
+    kickoff = _kickoff_utc(match)
+    if kickoff is None:
+        return None
+    home = str(match.get("home") or "TBD")
+    away = str(match.get("away") or "TBD")
+    status = str(match.get("status") or "UNKNOWN")
+    stage = str(match.get("stage") or "UNKNOWN")
+    kickoff_local = format_beijing(kickoff)
+    result = _score(match)
+    if result is None:
+        title = f"结构化赛程｜{home} vs {away}（北京时间 {kickoff_local}）"
+        summary = (
+            "football-data.org 结构化赛程："
+            f"北京时间 {kickoff_local}，{stage}，{home} vs {away}，"
+            f"状态 {status}，尚无完场比分。赛前资料不得写成赛果。"
+        )
+    else:
+        title = f"结构化赛果｜{_score_summary(match)}（北京时间 {kickoff_local}）"
+        summary = (
+            "football-data.org 结构化赛果："
+            f"北京时间 {kickoff_local}，{stage}，{_score_summary(match)}，"
+            f"状态 {status}，结果方向按对阵顺序记录为 {home} vs {away}；"
+            f"结论：{_winner_text(match)}。"
+        )
+    return Evidence(
+        id=_daily_match_evidence_id(match, kickoff),
+        title=title,
+        url="https://www.football-data.org/",
+        published_at=published_at,
+        source_name="football-data.org",
+        summary=summary,
+        source_id="football-data-org",
+        trust_tier="S1_structured_provider",
+        evidence_kind="structured",
+        verification_status="corroborated",
+        source_independence_key="football-data-org",
+    )
+
+
+async def collect_daily_structured_match_evidence(
+    request: ConsumerReportRequest,
+) -> list[Evidence]:
+    """Return fixtures/results inside the requested Beijing report day."""
+    if request.report_type not in {
+        ReportType.DAILY_FOOTBALL_DIGEST,
+        ReportType.WORLD_CUP_DAILY,
+    }:
+        return []
+    if not os.getenv("FOOTBALL_DATA_API_KEY"):
+        return []
+    scope = scope_for_request(request)
+    date_from = scope.window_start_utc.date().isoformat()
+    date_to = (scope.window_end_utc - timedelta(seconds=1)).date().isoformat()
+    payload = await list_competition_matches(
+        "WC", date_from=date_from, date_to=date_to
+    )
+    evidence: list[Evidence] = []
+    for match in payload.get("matches", []):
+        kickoff = _kickoff_utc(match)
+        if kickoff is None:
+            continue
+        if not (scope.window_start_utc <= kickoff < scope.window_end_utc):
+            continue
+        item = _daily_match_evidence(match, published_at=scope.data_cutoff_utc)
+        if item is not None:
+            evidence.append(item)
+    return evidence
+
+
 async def collect_structured_match_context(
     request: ConsumerReportRequest,
 ) -> tuple[list[Evidence], MatchModelContext | None]:
     """Load sourced recent World Cup results when the approved API is configured."""
     if not os.getenv("FOOTBALL_DATA_API_KEY"):
         return [], None
-    today = date.today()
+    cutoff_date = scope_for_request(request).data_cutoff_utc.date()
     payload = await list_competition_matches(
         "WC",
-        date_from=(today - timedelta(days=365)).isoformat(),
-        date_to=today.isoformat(),
+        date_from=(cutoff_date - timedelta(days=365)).isoformat(),
+        date_to=cutoff_date.isoformat(),
     )
     matches = payload.get("matches", [])
     teams = _teams_from_subject(request.subject, matches)

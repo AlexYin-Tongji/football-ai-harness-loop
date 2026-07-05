@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from services.report_api.config import Settings, load_local_dotenv
+from services.report_api.config import (
+    DEFAULT_OFFICIAL_VIDEO_CHANNEL_IDS,
+    Settings,
+    load_local_dotenv,
+)
 
 
 def test_dotenv_loads_without_overriding_process_env(tmp_path, monkeypatch) -> None:
@@ -38,6 +42,7 @@ def test_dotenv_loads_without_overriding_process_env(tmp_path, monkeypatch) -> N
         assert settings.youtube_official_channel_ids == (
             "fifa-channel",
             "club-channel",
+            *DEFAULT_OFFICIAL_VIDEO_CHANNEL_IDS,
         )
         assert settings.google_vision_configured is True
     finally:

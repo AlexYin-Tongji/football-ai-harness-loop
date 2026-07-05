@@ -23,7 +23,7 @@ class SkillDefinition(BaseModel):
     id: str
     version: str
     report_type: ReportType
-    max_model_rounds: int = Field(ge=1, le=8)
+    max_model_rounds: int = Field(ge=1, le=20)
     max_tool_rounds: int = Field(ge=0, le=20)
     phases: list[str] = Field(min_length=1)
     mcp_servers: list[str]

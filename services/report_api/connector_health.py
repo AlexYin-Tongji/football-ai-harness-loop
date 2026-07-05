@@ -9,6 +9,8 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, Field
 
+from services.report_api.config import DEFAULT_OFFICIAL_VIDEO_CHANNEL_IDS
+
 HealthStatus = Literal[
     "not_configured",
     "healthy",
@@ -308,16 +310,14 @@ def local_connector_health_shell() -> tuple[
         configured=bool(os.getenv("YOUTUBE_API_KEY")),
         status=(
             "healthy"
-            if os.getenv("YOUTUBE_API_KEY")
-            and os.getenv("YOUTUBE_OFFICIAL_CHANNEL_IDS")
+            if os.getenv("YOUTUBE_API_KEY") and DEFAULT_OFFICIAL_VIDEO_CHANNEL_IDS
             else "degraded"
             if os.getenv("YOUTUBE_API_KEY")
             else "not_configured"
         ),
         message=(
             "YouTube Key 与官方频道白名单均已配置。"
-            if os.getenv("YOUTUBE_API_KEY")
-            and os.getenv("YOUTUBE_OFFICIAL_CHANNEL_IDS")
+            if os.getenv("YOUTUBE_API_KEY") and DEFAULT_OFFICIAL_VIDEO_CHANNEL_IDS
             else "已配置 YouTube Key，但缺少官方频道白名单。"
             if os.getenv("YOUTUBE_API_KEY")
             else "未配置 YouTube Key；报告不会附带官方视频。"
@@ -357,7 +357,8 @@ async def collect_connector_health(
         )
     if youtube.status != "healthy":
         recommendations.append(
-            "视频进入报告前必须配置 YouTube Key 和人工确认的官方频道 ID。"
+            "视频进入报告前必须配置 YouTube Key，并使用 Source Registry "
+            "登记的官方频道白名单。"
         )
     if visual.status == "not_configured":
         recommendations.append(

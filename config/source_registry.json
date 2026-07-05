@@ -41,6 +41,19 @@
       "store_policy": "metadata_and_excerpt_only_no_full_text"
     },
     {
+      "id": "guardian-open-platform",
+      "name": "The Guardian Open Platform",
+      "category": "news_discovery",
+      "trust_tier": "S1_publisher_api",
+      "access": "api",
+      "production_status": "approved_development_noncommercial",
+      "base_url": "https://content.guardianapis.com/search",
+      "docs_url": "https://open-platform.theguardian.com/documentation/",
+      "credential_env": "GUARDIAN_OPEN_PLATFORM_API_KEY",
+      "allowed_content": ["title", "url", "published_at", "trail_text", "standfirst"],
+      "store_policy": "metadata_and_excerpt_only_no_full_text"
+    },
+    {
       "id": "bbc-football-rss",
       "name": "BBC Sport Football RSS",
       "category": "news_discovery",
@@ -103,7 +116,19 @@
       "base_url": "https://www.googleapis.com/youtube/v3",
       "docs_url": "https://developers.google.com/youtube/v3/docs/search/list",
       "credential_env": "YOUTUBE_API_KEY",
-      "allowed_content": ["video_id", "title", "thumbnail", "channel", "published_at", "embeddable_status"],
+      "approved_channel_ids": [
+        {
+          "channel_id": "UCpcTrCXblq78GZrTUTLWeBw",
+          "name": "FIFA",
+          "basis": "FIFA official YouTube channel"
+        },
+        {
+          "channel_id": "UCCc3h5l7RvGzCAbZ1ApxOYw",
+          "name": "Mediacorp Sports",
+          "basis": "official World Cup highlights broadcaster channel for public metadata linking"
+        }
+      ],
+      "allowed_content": ["video_id", "title", "thumbnail", "channel", "published_at", "embeddable_status", "official_channel_feed_metadata"],
       "store_policy": "metadata_and_external_link_only_no_video_download"
     },
     {

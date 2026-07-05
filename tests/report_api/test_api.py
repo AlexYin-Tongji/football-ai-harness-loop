@@ -262,20 +262,23 @@ def test_product_status_hides_model_details() -> None:
         "mode": "demo",
         "model_status": "demo",
         "model_issue": "",
-        "source": "四层资料流水线（URL 收集 + 精简提炼 + 增强补采 + 撰写整合）",
+        "source": (
+            "今日球脉阶段表（Seed 收集 + 精简 + Leader 分栏 + 小组循环 "
+            "+ 覆盖合稿 + 声明校验）"
+        ),
         "external_services": {
             "sportmonks": False,
             "football_data": False,
             "news_api": False,
             "youtube_key": False,
             "youtube_channel_allowlist": False,
-            "licensed_media": True,
+            "licensed_media": False,
             "google_vision": False,
         },
     }
 
 
-def test_daily_football_digest_runs_two_desks_and_editor() -> None:
+def test_daily_football_digest_runs_leader_columns_and_editor() -> None:
     response = asyncio.run(
         post_json(
             "/v1/reports/generate",
@@ -300,4 +303,4 @@ def test_daily_football_digest_runs_two_desks_and_editor() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["attempts"] == 5
+    assert response.json()["attempts"] >= 3

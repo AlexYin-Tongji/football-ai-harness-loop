@@ -25,6 +25,22 @@ class MatchStage(StrEnum):
     KNOCKOUT = "knockout"
 
 
+class ReportTimeScope(BaseModel):
+    timezone: Literal["Asia/Shanghai"] = "Asia/Shanghai"
+    report_date: date
+    window_start_utc: datetime
+    window_end_utc: datetime
+    data_cutoff_utc: datetime
+    local_window_label: str = Field(min_length=1, max_length=160)
+
+    @field_validator("window_start_utc", "window_end_utc", "data_cutoff_utc")
+    @classmethod
+    def scope_datetimes_must_have_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("time scope datetimes must include a timezone")
+        return value
+
+
 class Evidence(BaseModel):
     id: str = Field(min_length=1, max_length=100)
     title: str = Field(min_length=1, max_length=500)
@@ -71,7 +87,10 @@ class MediaAsset(BaseModel):
     asset_type: Literal["image", "video"]
     title: str = Field(min_length=1, max_length=300)
     url: HttpUrl
+    embed_url: HttpUrl | None = None
     thumbnail_url: HttpUrl | None = None
+    local_thumbnail_url: str | None = Field(default=None, max_length=500)
+    local_path: str | None = Field(default=None, max_length=1000)
     provider: str = Field(min_length=1, max_length=120)
     license: str = Field(min_length=1, max_length=120)
     attribution: str = Field(min_length=1, max_length=500)
@@ -80,6 +99,30 @@ class MediaAsset(BaseModel):
         "uncertain"
     )
     relevance_reason: str | None = Field(default=None, max_length=500)
+    placement: Literal["report_cover", "section", "timeline", "spotlight"] = "section"
+    target: str | None = Field(default=None, max_length=160)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class EditorialColumnPlan(BaseModel):
+    column_id: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=160)
+    category: Literal["match", "transfer", "off_field", "context"] = "context"
+    specialist_group: Literal[
+        "match_report",
+        "transfer_intel",
+        "coach_tactics",
+        "player_profile",
+        "off_field",
+        "context"
+    ] = "context"
+    priority: int = Field(default=3, ge=1, le=6)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=12)
+    search_iterations: int = Field(default=2, ge=1, le=4)
+    enrichment_targets: list[str] = Field(default_factory=list, max_length=8)
+    media_targets: list[str] = Field(default_factory=list, max_length=8)
+    coverage_requirements: list[str] = Field(default_factory=list, max_length=8)
+    instructions: str = Field(default="", max_length=1000)
 
 
 class ReportRequest(BaseModel):
@@ -87,12 +130,17 @@ class ReportRequest(BaseModel):
     subject: str = Field(min_length=1, max_length=300)
     report_date: date
     data_cutoff: datetime
+    time_scope: ReportTimeScope | None = None
     length: ReportLength = ReportLength.STANDARD
     focus: list[str] = Field(default_factory=list, max_length=8)
     match_stage: MatchStage | None = None
     evidence: list[Evidence] = Field(min_length=1, max_length=100)
     match_context: MatchModelContext | None = None
     collection_warnings: list[str] = Field(default_factory=list, max_length=12)
+    previous_story_memory: list[str] = Field(default_factory=list, max_length=12)
+    editorial_plan: list[EditorialColumnPlan] = Field(
+        default_factory=list, max_length=8
+    )
     prefetched_media_assets: list[MediaAsset] = Field(
         default_factory=list, max_length=8
     )
@@ -111,6 +159,10 @@ class ReportRequest(BaseModel):
             raise ValueError("evidence IDs must be unique")
         if any(item.published_at > self.data_cutoff for item in self.evidence):
             raise ValueError("evidence cannot be newer than data_cutoff")
+        if self.time_scope and self.time_scope.report_date != self.report_date:
+            raise ValueError("time_scope.report_date must match report_date")
+        if self.time_scope and self.data_cutoff != self.time_scope.data_cutoff_utc:
+            raise ValueError("data_cutoff must match time_scope.data_cutoff_utc")
         if self.report_type == ReportType.MATCH_PREDICTION and not self.match_stage:
             raise ValueError("match_stage is required for match prediction reports")
         if self.report_type != ReportType.MATCH_PREDICTION and self.match_stage:
@@ -126,12 +178,15 @@ class ConsumerReportRequest(BaseModel):
     report_type: ReportType
     subject: str = Field(min_length=3, max_length=300)
     report_date: date
+    time_scope: ReportTimeScope | None = None
     length: ReportLength = ReportLength.STANDARD
     focus: list[str] = Field(default_factory=list, max_length=8)
     match_stage: MatchStage | None = None
 
     @model_validator(mode="after")
     def validate_context(self) -> ConsumerReportRequest:
+        if self.time_scope and self.time_scope.report_date != self.report_date:
+            raise ValueError("time_scope.report_date must match report_date")
         if self.report_type == ReportType.MATCH_PREDICTION and not self.match_stage:
             raise ValueError("match_stage is required for match prediction reports")
         if self.report_type != ReportType.MATCH_PREDICTION and self.match_stage:
@@ -143,6 +198,7 @@ class ReportSection(BaseModel):
     heading: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=12000)
     evidence_ids: list[str] = Field(min_length=1)
+    category: Literal["match", "transfer", "off_field", "context"] | None = None
 
 
 class EvidenceFactor(BaseModel):
@@ -264,7 +320,7 @@ class PredictionOpinion(BaseModel):
 
 
 class DeskBrief(BaseModel):
-    desk: Literal["match_news", "transfer_market"]
+    desk: str = Field(min_length=1, max_length=80)
     key_items: list[EvidenceFactor] = Field(min_length=1, max_length=12)
     rumor_items: list[EvidenceFactor] = Field(default_factory=list, max_length=12)
     conflicts: list[str] = Field(default_factory=list, max_length=8)
@@ -272,7 +328,7 @@ class DeskBrief(BaseModel):
 
 
 class DeskDraft(BaseModel):
-    desk: Literal["match_news", "transfer_market"]
+    desk: str = Field(min_length=1, max_length=80)
     heading: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=2000)
     sections: list[ReportSection] = Field(min_length=1, max_length=6)
@@ -287,6 +343,6 @@ class ReportResponse(BaseModel):
     prompt_version: str
     data_cutoff: datetime
     generated_at: datetime
-    attempts: int = Field(ge=1, le=8)
+    attempts: int = Field(ge=1, le=20)
     usage: TokenUsage
     report: GeneratedReport
