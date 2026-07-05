@@ -513,7 +513,7 @@ TIME_CLAIM_RE = re.compile(
     r"第\s*\d{1,3}\s*分钟|\d{1,3}(?:st|nd|rd|th)[-\s]?minute",
     re.I,
 )
-SCORE_CLAIM_RE = re.compile(r"(?<!\d)\d{1,2}\s*[-–]\s*\d{1,2}(?!\d)")
+SCORE_CLAIM_RE = re.compile(r"(?<![\d:-])\d{1,2}\s*[-–]\s*\d{1,2}(?![\d:-])")
 
 
 def _split_claim_sentences(text: str) -> list[str]:

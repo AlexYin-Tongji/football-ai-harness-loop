@@ -158,7 +158,7 @@ def test_daily_structured_match_evidence_uses_beijing_window(monkeypatch) -> Non
         }
 
     monkeypatch.setattr(
-        "services.report_api.structured_match_data.list_competition_matches",
+        "services.report_api.football_facts.list_competition_matches",
         fake_matches,
     )
     request = ConsumerReportRequest(
@@ -178,4 +178,53 @@ def test_daily_structured_match_evidence_uses_beijing_window(monkeypatch) -> Non
     assert "Switzerland 2-0 Algeria" in joined
     assert "Australia" not in joined
     assert "北京时间 2026-07-03" in joined
+    assert "北京时间 2026-07-03 全日窗口" in joined
+    assert "阶段 32强淘汰赛（LAST_32）" in joined
+    assert "00:00-24:00" not in joined
     assert {item.evidence_kind for item in evidence} == {"structured"}
+    assert "不得编写未入证据的时间线" in joined
+
+
+def test_daily_structured_match_warnings_explain_missing_events(monkeypatch) -> None:
+    monkeypatch.setenv("FOOTBALL_DATA_API_KEY", "test-token")
+    monkeypatch.delenv("SPORTMONKS_API_TOKEN", raising=False)
+
+    async def fake_matches(*_args, **_kwargs):
+        return {
+            "matches": [
+                {
+                    "id": 10,
+                    "home": "Portugal",
+                    "away": "Croatia",
+                    "stage": "LAST_32",
+                    "status": "FINISHED",
+                    "utc_date": "2026-07-02T23:00:00Z",
+                    "score": {
+                        "duration": "REGULAR",
+                        "fullTime": {"home": 2, "away": 1},
+                    },
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "services.report_api.football_facts.list_competition_matches",
+        fake_matches,
+    )
+    request = ConsumerReportRequest(
+        report_type="daily_football_digest",
+        subject="今日球脉｜世界杯",
+        report_date=date(2026, 7, 3),
+    )
+
+    from services.report_api.structured_match_data import (
+        collect_daily_structured_match_evidence_with_warnings,
+    )
+
+    evidence, warnings = asyncio.run(
+        collect_daily_structured_match_evidence_with_warnings(request)
+    )
+
+    assert len(evidence) == 1
+    assert any("缺少结构化进球者" in warning for warning in warnings)
+    assert any("Sportmonks 未配置" in warning for warning in warnings)

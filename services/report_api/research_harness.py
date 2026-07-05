@@ -52,7 +52,7 @@ from services.report_api.media import (
 from services.report_api.model_control import evidence_index, truncate_text
 from services.report_api.providers.base import LLMProvider, LLMProviderError, LLMRequest
 from services.report_api.structured_match_data import (
-    collect_daily_structured_match_evidence,
+    collect_daily_structured_match_evidence_with_warnings,
 )
 
 INITIAL_LEADER_SEED_MAX_ITEMS = 8
@@ -2052,13 +2052,18 @@ class ResearchHarness:
             request, max_items=max(leader_seed_items * 2, 12)
         )
         structured_evidence: list[Evidence] = []
+        structured_warnings: list[str] = []
         if self._structured_match_enabled:
             try:
-                structured_evidence = await collect_daily_structured_match_evidence(
+                (
+                    structured_evidence,
+                    structured_warnings,
+                ) = await collect_daily_structured_match_evidence_with_warnings(
                     request
                 )
             except Exception:
                 structured_evidence = []
+                structured_warnings = ["结构化赛程事实层暂时不可用，已降级为新闻证据。"]
         if structured_evidence:
             structured_ids = {item.id for item in structured_evidence}
             merged_candidates = _dedupe_evidence(
@@ -2089,7 +2094,15 @@ class ResearchHarness:
                             ][:8],
                         }
                     ),
+                    "warnings": [
+                        *url_result.warnings,
+                        *structured_warnings,
+                    ][:12],
                 }
+            )
+        elif structured_warnings:
+            url_result = url_result.model_copy(
+                update={"warnings": [*url_result.warnings, *structured_warnings][:12]}
             )
         if progress_callback:
             progress_callback("url_collection", 18)

@@ -120,9 +120,11 @@ CN_MINUTE_PLAYER_ACTION_RE = re.compile(
     r"(?:破门|进球|扳平|反超|点射|头球|低射|世界波|建功)",
     re.I,
 )
-SCORE_RE = re.compile(r"\b(?P<score>\d{1,2}-\d{1,2})\b")
+SCORE_RE = re.compile(
+    r"(?<![\d:-])(?P<score>\d{1,2}-\d{1,2})(?![\d:-])"
+)
 VISIBLE_SCORE_RE = re.compile(
-    r"(?<![\d-])(?P<home>\d{1,2})\s*[-–]\s*(?P<away>\d{1,2})(?![\d-])"
+    r"(?<![\d:-])(?P<home>\d{1,2})\s*[-–]\s*(?P<away>\d{1,2})(?![\d:-])"
 )
 TEAM_WORDS = (
     "France",

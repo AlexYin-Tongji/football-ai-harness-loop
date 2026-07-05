@@ -12,6 +12,7 @@ from services.report_api.domain import (
 from services.report_api.evidence_state import is_completed_match_evidence
 from services.report_api.providers.base import LLMProviderError, LLMRequest, LLMResult
 from services.report_api.service import (
+    VISIBLE_SCORE_RE,
     ReportService,
     _assign_section_categories,
     _repair_report_scorelines,
@@ -1269,6 +1270,14 @@ def test_service_repairs_structured_scoreline_without_reading_date_as_score() ->
     assert "西班牙3-0战胜奥地利" in report.executive_summary
     assert report.sections[0].heading == "西班牙 3-0 奥地利"
     assert "3-7" not in report.sections[0].body
+
+
+def test_visible_score_regex_ignores_beijing_day_window() -> None:
+    text = "北京时间 2026-07-03 00:00-24:00；Spain 3-0 Austria"
+
+    matches = [match.group(0) for match in VISIBLE_SCORE_RE.finditer(text)]
+
+    assert matches == ["3-0"]
 
 
 def test_assign_categories_requires_transfer_evidence_for_transfer_upgrade() -> None:
