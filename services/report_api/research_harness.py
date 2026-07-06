@@ -22,6 +22,7 @@ from services.report_api.critical_entities import (
     load_critical_entities,
     matching_critical_entities,
 )
+from services.report_api.daily_briefing import daily_briefing_playbook_payload
 from services.report_api.domain import (
     ConsumerReportRequest,
     EditorialColumnPlan,
@@ -43,11 +44,6 @@ from services.report_api.evidence_state import (
     evidence_is_match_like,
     is_completed_match_evidence,
     is_upcoming_match_evidence,
-)
-from services.report_api.media import (
-    cache_media_thumbnail,
-    search_commons_player_image,
-    search_official_youtube_video,
 )
 from services.report_api.model_control import evidence_index, truncate_text
 from services.report_api.providers.base import LLMProvider, LLMProviderError, LLMRequest
@@ -71,37 +67,8 @@ LayerStatus = Literal["completed", "degraded", "skipped"]
 EnhancementKind = Literal[
     "player_profile",
     "club_context",
-    "licensed_image",
-    "official_video",
     "match_context",
-    "gif",
 ]
-MATCH_VISUAL_RE = re.compile(
-    r"\b(goal|scored|scores|winner|equaliser|equalizer|penalty|var|"
-    r"highlights?|match report|beat|beats|defeat|defeats)\b",
-    re.I,
-)
-TEAM_NAME_ALIASES = {
-    "Portugal": ("Portugal", "葡萄牙"),
-    "Croatia": ("Croatia", "克罗地亚"),
-    "Spain": ("Spain", "西班牙"),
-    "Austria": ("Austria", "奥地利"),
-    "Switzerland": ("Switzerland", "瑞士"),
-    "Algeria": ("Algeria", "阿尔及利亚"),
-    "England": ("England", "英格兰"),
-    "Mexico": ("Mexico", "墨西哥"),
-    "Australia": ("Australia", "澳大利亚"),
-    "Egypt": ("Egypt", "埃及"),
-}
-PLAYER_IMAGE_TARGETS = {
-    "Cristiano Ronaldo": ("Cristiano Ronaldo", "Ronaldo", "C罗", "罗纳尔多"),
-    "Goncalo Ramos": ("Goncalo Ramos", "Ramos", "贡萨洛·拉莫斯", "拉莫斯"),
-    "Mikel Oyarzabal": ("Mikel Oyarzabal", "Oyarzabal", "奥亚萨瓦尔"),
-    "Lionel Messi": ("Lionel Messi", "Messi", "梅西"),
-    "Mohamed Salah": ("Mohamed Salah", "Salah", "萨拉赫"),
-    "Riyad Mahrez": ("Riyad Mahrez", "Mahrez", "马赫雷斯"),
-    "Luka Modric": ("Luka Modric", "Modric", "莫德里奇", "魔笛"),
-}
 RESEARCH_FOCUS_ALIASES = {
     "热刺": ("Spurs", "Tottenham", "Tottenham Hotspur"),
     "托特纳姆": ("Spurs", "Tottenham", "Tottenham Hotspur"),
@@ -257,63 +224,6 @@ def _model_failure_detail(exc: Exception) -> str:
     return exc.__class__.__name__
 
 
-def _known_team_names(text: str) -> list[str]:
-    found: list[str] = []
-    folded = text.casefold()
-    for team, aliases in TEAM_NAME_ALIASES.items():
-        for alias in aliases:
-            if re.search(r"[\u4e00-\u9fff]", alias):
-                if alias in text:
-                    found.append(team)
-                    break
-                continue
-            if re.search(rf"(?<![a-z]){re.escape(alias.casefold())}(?![a-z])", folded):
-                found.append(team)
-                break
-    return list(dict.fromkeys(found))
-
-
-def _known_player_image_targets(text: str) -> list[str]:
-    found: list[str] = []
-    folded = text.casefold()
-    for player, aliases in PLAYER_IMAGE_TARGETS.items():
-        for alias in aliases:
-            if re.search(r"[\u4e00-\u9fff]", alias):
-                if alias in text:
-                    found.append(player)
-                    break
-                continue
-            if re.search(
-                rf"(?<![a-z]){re.escape(alias.casefold())}(?![a-z])", folded
-            ):
-                found.append(player)
-                break
-    return list(dict.fromkeys(found))
-
-
-def _person_image_candidates(text: str, *, limit: int = 3) -> list[str]:
-    blocked = {
-        "World Cup",
-        "FIFA World",
-        "BBC Sport",
-        "The Guardian",
-        "Premier League",
-        "Champions League",
-        "Club World",
-    }
-    names: list[str] = []
-    for name in re.findall(
-        r"\b[A-Z][A-Za-zÀ-ÿ'’.-]{2,}(?:\s+[A-Z][A-Za-zÀ-ÿ'’.-]{2,}){1,2}\b",
-        text,
-    ):
-        if name in blocked:
-            continue
-        if any(term in name.casefold() for term in {"world cup", "bbc sport"}):
-            continue
-        names.append(name)
-    return list(dict.fromkeys(names))[:limit]
-
-
 def _research_focus_aliases(text: str) -> list[str]:
     aliases: list[str] = []
     folded = text.casefold()
@@ -399,7 +309,7 @@ def fallback_research_plan(request: ConsumerReportRequest) -> ResearchPlan:
             ),
             ResearchQuery(
                 query=_search_query_text(
-                    f"{seed} official match centre highlights team news"
+                    f"{seed} official match centre team news lineup injuries"
                 ),
                 purpose="prediction_context",
                 sources=["gdelt", "newsapi"],
@@ -428,8 +338,7 @@ def fallback_research_plan(request: ConsumerReportRequest) -> ResearchPlan:
             ),
             ResearchQuery(
                 query=_search_query_text(
-                    f"{seed} BBC Guardian Sky Sports Marca Diario Sport "
-                    "transfer update"
+                    f"{seed} BBC Guardian Sky Sports Marca Diario Sport transfer update"
                 ),
                 purpose="transfer_market",
                 sources=["gdelt", "newsapi"],
@@ -449,7 +358,7 @@ def fallback_research_plan(request: ConsumerReportRequest) -> ResearchPlan:
             ),
             ResearchQuery(
                 query=_search_query_text(
-                    f"{seed} official club statement team news highlights"
+                    f"{seed} official club statement team news match report"
                 ),
                 purpose="match_news",
                 sources=["gdelt", "newsapi"],
@@ -524,17 +433,16 @@ class UrlCollectionHarness:
                         {
                             "role": "system",
                             "content": (
-                            "你是足球资料 URL 收集规划器。只生成搜索计划，"
-                            "不写事实。查询词优先英文，可根据球队、球员和联赛"
-                            "补充原语言发布者查询；只能使用 rss、gdelt、"
-                            "newsapi 三类已登记发现源。不要加入社媒、任意网页"
-                            "抓取或未登记来源；候选必须保留原链接以便回溯。"
-                            "如果请求包含 time_scope，查询计划必须服务于该北京时间"
-                            "自然日窗口，不得按模型当前日期扩到其他比赛日。"
-                            "输出 JSON，"
+                                "你是足球资料 URL 收集规划器。只生成搜索计划，"
+                                "不写事实。查询词优先英文，可根据球队、球员和联赛"
+                                "补充原语言发布者查询；只能使用 rss、gdelt、"
+                                "newsapi 三类已登记发现源。不要加入社媒、任意网页"
+                                "抓取或未登记来源；候选必须保留原链接以便回溯。"
+                                "如果请求包含 time_scope，查询计划必须服务于该北京时间"
+                                "自然日窗口，不得按模型当前日期扩到其他比赛日。"
+                                "输出 JSON，"
                                 f"Schema: {json.dumps(schema, ensure_ascii=False)}"
-                                "\n\n来源发现 SKILL：\n"
-                                + self._skill_text
+                                "\n\n来源发现 SKILL：\n" + self._skill_text
                             ),
                         },
                         {"role": "user", "content": request.model_dump_json()},
@@ -736,18 +644,18 @@ class EvidenceRefinementHarness:
         if not candidates:
             warning = "资料精简层没有收到候选 URL。"
             return RefinementLayerResult(
-            evidence=[],
-            warnings=[warning],
-            loop=LayerLoopSummary(
-                name="evidence_refinement",
-                label="第二层：资料精简提炼",
-                    status="degraded",
-                input_count=0,
-                output_count=0,
+                evidence=[],
                 warnings=[warning],
-                checkpoints=["no_candidates"],
-            ),
-        )
+                loop=LayerLoopSummary(
+                    name="evidence_refinement",
+                    label="第二层：资料精简提炼",
+                    status="degraded",
+                    input_count=0,
+                    output_count=0,
+                    warnings=[warning],
+                    checkpoints=["no_candidates"],
+                ),
+            )
 
         selected = finish_evidence_selection(request, candidates, max_items=max_items)
         article_excerpts = await self._read_article_excerpts(selected)
@@ -822,9 +730,7 @@ class EvidenceRefinementHarness:
                 "published_at": item.published_at.isoformat(),
                 "title": truncate_text(item.title, 180),
                 "summary": truncate_text(item.summary, 1200),
-                "article_excerpt": truncate_text(
-                    article_excerpts[item.id].text, 2400
-                )
+                "article_excerpt": truncate_text(article_excerpts[item.id].text, 2400)
                 if item.id in article_excerpts
                 else "",
                 "url": str(item.url),
@@ -850,8 +756,7 @@ class EvidenceRefinementHarness:
                             "精简摘要要能让撰写层知道该回溯哪条原链接。"
                             "输出 JSON，"
                             f"Schema: {json.dumps(schema, ensure_ascii=False)}"
-                            "\n\n资料精简 SKILL：\n"
-                            + self._skill_text
+                            "\n\n资料精简 SKILL：\n" + self._skill_text
                         ),
                     },
                     {
@@ -968,9 +873,7 @@ class EnhancementHarness:
         self._provider = provider
         self._model = model
         self._max_output_tokens = max_output_tokens
-        self._media_enabled = media_enabled
-        self._youtube_api_key = youtube_api_key
-        self._youtube_channel_ids = youtube_channel_ids
+        _ = (media_enabled, youtube_api_key, youtube_channel_ids)
         self._max_tool_rounds = max_tool_rounds
         self._skill_text = self._load_skill_text()
 
@@ -1004,7 +907,9 @@ class EnhancementHarness:
                     ][:8]
                 }
             )
-        plan = self._with_deterministic_visual_needs(request, evidence, plan)
+        plan = self._without_media_needs(
+            self._with_deterministic_visual_needs(request, evidence, plan)
+        )
         additional: list[Evidence] = []
         assets: list[MediaAsset] = []
         warnings = list(plan.warnings)
@@ -1014,23 +919,8 @@ class EnhancementHarness:
             if tool_rounds >= self._max_tool_rounds:
                 warnings.append("增强层达到工具轮次预算，已停止补采。")
                 break
-            if need.kind == "gif":
-                warnings.append(self._manual_visual_hint(need))
-                continue
             tool_rounds += 1
-            if need.kind == "licensed_image":
-                asset = await self._collect_commons_image(need)
-                if asset:
-                    assets.append(asset)
-                else:
-                    warnings.append(f"未找到可自动附加的许可图片：{need.target}")
-            elif need.kind == "official_video":
-                asset = await self._collect_official_video(need)
-                if asset:
-                    assets.append(asset)
-                else:
-                    warnings.append(f"未找到可自动附加的官方视频：{need.target}")
-            elif need.kind == "player_profile":
+            if need.kind == "player_profile":
                 profile = await self._collect_player_profile(need)
                 if profile:
                     additional.append(profile)
@@ -1087,21 +977,31 @@ class EnhancementHarness:
                         "content": (
                             "你是足球报道增强层调度员。只判断还需要哪些补充资料，"
                             "不要写报道。严格遵守增强 SKILL 和 Source Registry 边界。"
-                            "GIF/比赛动图如果没有批准来源，只能提出人工补充，不得自动抓取。"
+                            "当前关闭图像和视频功能，不要提出 licensed_image、"
+                            "official_video 或 gif 需求；如需增强，只能请求"
+                            "player_profile、club_context 或 match_context 等文字资料。"
                             "输出 JSON，Schema: "
                             f"{json.dumps(schema, ensure_ascii=False)}"
-                            "\n\n增强 SKILL：\n"
-                            + self._skill_text
+                            "\n\n增强 SKILL：\n" + self._skill_text
                         ),
                     },
                     {
                         "role": "user",
                         "content": json.dumps(
-                            {
-                                "report_type": request.report_type.value,
-                                "subject": request.subject,
-                                "evidence_index": evidence_index(evidence),
-                            },
+                    {
+                        "report_type": request.report_type.value,
+                        "subject": request.subject,
+                        "daily_briefing_playbook": (
+                            daily_briefing_playbook_payload()
+                            if request.report_type
+                            in {
+                                ReportType.DAILY_FOOTBALL_DIGEST,
+                                ReportType.TRANSFER_DAILY,
+                            }
+                            else None
+                        ),
+                        "evidence_index": evidence_index(evidence),
+                    },
                             ensure_ascii=False,
                         ),
                     },
@@ -1128,104 +1028,12 @@ class EnhancementHarness:
         evidence: list[Evidence],
         plan: EnhancementPlan,
     ) -> EnhancementPlan:
-        existing = {
-            (need.kind, need.target.casefold(), tuple(need.evidence_ids))
-            for need in plan.needs
-        }
-        additions: list[EnhancementNeed] = []
-        seen_match_keys: set[str] = set()
-        cover_added = False
-        for item in evidence[:10]:
-            if item.id.startswith("critical-"):
-                continue
-            text = f"{item.title} {item.summary}"
-            if not is_completed_match_evidence(item):
-                continue
-            if not MATCH_VISUAL_RE.search(text):
-                continue
-            teams = _known_team_names(text)
-            match_key = " vs ".join(teams[:2]) if len(teams) >= 2 else item.id
-            if match_key in seen_match_keys:
-                continue
-            seen_match_keys.add(match_key)
-            placement_reason = (
-                "赛事首图：优先使用官方高光视频缩略图作为日报头图。"
-                if not cover_added
-                else "赛事栏目图：为该场比赛寻找官方高光缩略图。"
-            )
-            cover_added = True
-            title_target = truncate_text(
-                (
-                    f"{match_key} FIFA World Cup 2026 official highlights"
-                    if match_key != item.id
-                    else f"{item.title} official highlights"
-                ),
-                160,
-            )
-            key = ("official_video", title_target.casefold(), (item.id,))
-            if key not in existing:
-                additions.append(
-                    EnhancementNeed(
-                        kind="official_video",
-                        target=title_target,
-                        reason=placement_reason,
-                        evidence_ids=[item.id],
-                        priority=1,
-                    )
-                )
-                existing.add(key)
-            if re.search(r"\b(goal|scored|winner|equaliser|penalty|var)\b", text, re.I):
-                event_target = truncate_text(
-                    f"{item.title} goal VAR official highlight", 160
-                )
-                key = ("official_video", event_target.casefold(), (item.id,))
-                if key not in existing:
-                    additions.append(
-                        EnhancementNeed(
-                            kind="official_video",
-                            target=event_target,
-                            reason="关键事件画面：插到进球、VAR 或时间线事件下方。",
-                            evidence_ids=[item.id],
-                            priority=2,
-                        )
-                    )
-                    existing.add(key)
-            for player in _known_player_image_targets(text):
-                key = ("licensed_image", player.casefold(), (item.id,))
-                if key not in existing:
-                    additions.append(
-                        EnhancementNeed(
-                            kind="licensed_image",
-                            target=player,
-                            reason=(
-                                "球员图候选：优先寻找可许可的人物/庆祝图片，"
-                                "用于战报小节配图。"
-                            ),
-                            evidence_ids=[item.id],
-                            priority=3,
-                        )
-                    )
-                    existing.add(key)
-            for player in _person_image_candidates(text):
-                key = ("licensed_image", player.casefold(), (item.id,))
-                if key not in existing:
-                    additions.append(
-                        EnhancementNeed(
-                            kind="licensed_image",
-                            target=player,
-                            reason=(
-                                "人物图候选：证据标题或摘要出现该球员/教练，"
-                                "优先查 Wikimedia Commons 许可图片。"
-                            ),
-                            evidence_ids=[item.id],
-                            priority=4,
-                        )
-                    )
-                    existing.add(key)
-        ordered_needs = sorted(
-            [*additions, *plan.needs], key=lambda need: need.priority
-        )
-        return plan.model_copy(update={"needs": ordered_needs[:10]})
+        _ = (request, evidence)
+        return plan
+
+    @staticmethod
+    def _without_media_needs(plan: EnhancementPlan) -> EnhancementPlan:
+        return plan
 
     @staticmethod
     def _fallback_plan(
@@ -1260,15 +1068,6 @@ class EnhancementHarness:
                         priority=2,
                     )
                 )
-                needs.append(
-                    EnhancementNeed(
-                        kind="licensed_image",
-                        target=name,
-                        reason="人物卡可能需要许可图片。",
-                        evidence_ids=[evidence_id],
-                        priority=4,
-                    )
-                )
         if request.report_type == ReportType.MATCH_PREDICTION:
             needs.append(
                 EnhancementNeed(
@@ -1279,89 +1078,7 @@ class EnhancementHarness:
                     priority=1,
                 )
             )
-            needs.append(
-                EnhancementNeed(
-                    kind="official_video",
-                    target=f"{request.subject} official highlights team news",
-                    reason="比赛预测和复盘可用官方视频补充关键画面或赛前信息。",
-                    evidence_ids=[evidence[0].id],
-                    priority=4,
-                )
-            )
-        if any(MATCH_VISUAL_RE.search(item.summary) for item in evidence):
-            needs.append(
-                EnhancementNeed(
-                    kind="official_video",
-                    target=f"{request.subject} official match highlights goal",
-                    reason="证据提到关键进球或高光，优先查官方频道可嵌入视频。",
-                    evidence_ids=[evidence[0].id],
-                    priority=3,
-                )
-            )
-            needs.append(
-                EnhancementNeed(
-                    kind="gif",
-                    target=f"{request.subject} key goal or highlight",
-                    reason="证据提到关键进球或高光，适合生成一条人工补图任务。",
-                    evidence_ids=[evidence[0].id],
-                    priority=5,
-                )
-            )
         return EnhancementPlan(needs=needs)
-
-    async def _collect_commons_image(self, need: EnhancementNeed) -> MediaAsset | None:
-        if not self._media_enabled:
-            return None
-        try:
-            asset = await search_commons_player_image(need.target)
-        except Exception:
-            return None
-        if not asset:
-            return None
-        asset = await cache_media_thumbnail(asset)
-        return asset.model_copy(
-            update={
-                "placement": "spotlight",
-                "target": need.target,
-                "evidence_ids": need.evidence_ids,
-            }
-        )
-
-    async def _collect_official_video(self, need: EnhancementNeed) -> MediaAsset | None:
-        if not (
-            self._media_enabled and self._youtube_api_key and self._youtube_channel_ids
-        ):
-            return None
-        try:
-            asset = await search_official_youtube_video(
-                need.target,
-                self._youtube_api_key,
-                list(self._youtube_channel_ids),
-            )
-        except Exception:
-            return None
-        if not asset:
-            return None
-        if "赛事首图" in need.reason:
-            placement = "report_cover"
-        elif "赛事栏目图" in need.reason:
-            placement = "section"
-        elif "关键事件画面" in need.reason or re.search(
-            r"goal|highlight|winner|equaliser|var|penalty|进球|高光",
-            need.target,
-            re.I,
-        ):
-            placement = "timeline"
-        else:
-            placement = "section"
-        asset = await cache_media_thumbnail(asset)
-        return asset.model_copy(
-            update={
-                "placement": placement,
-                "target": need.target,
-                "evidence_ids": need.evidence_ids,
-            }
-        )
 
     async def _collect_player_profile(self, need: EnhancementNeed) -> Evidence | None:
         token = os.getenv("SPORTMONKS_API_TOKEN")
@@ -1408,9 +1125,10 @@ class EnhancementHarness:
         summary_parts.append(
             "该资料的展示和再分发取决于 Sportmonks 订阅合同；当前只写入规范化字段摘要。"
         )
-        evidence_id = "sportmonks-player-" + hashlib.sha256(
-            f"{player_id}:{name}".encode()
-        ).hexdigest()[:12]
+        evidence_id = (
+            "sportmonks-player-"
+            + hashlib.sha256(f"{player_id}:{name}".encode()).hexdigest()[:12]
+        )
         return Evidence(
             id=evidence_id,
             title=f"{name} 结构化球员资料",
@@ -1430,15 +1148,6 @@ class EnhancementHarness:
         return _load_agent_skill_text(
             "research-enhancement",
             "增强层只允许调用 Source Registry 已登记的只读资料和许可媒体工具。",
-        )
-
-    @staticmethod
-    def _manual_visual_hint(need: EnhancementNeed) -> str:
-        return (
-            "关键画面需人工补充："
-            f"{need.target}。建议优先查赛事/俱乐部官方比赛中心、官方高光视频"
-            "或已授权图库；GIF/比赛动图当前没有批准自动来源，系统不会抓取"
-            "新闻配图、社媒截图或比赛片段。"
         )
 
     @staticmethod
@@ -1506,9 +1215,11 @@ class LeaderReviewHarness:
             if self._is_critical_related(item, critical_aliases)
         ]
         topical_count = len(evidence) - len(critical_related)
-        coverage_evidence = evidence if critical_subject_mode else [
-            item for item in evidence if item not in critical_related
-        ]
+        coverage_evidence = (
+            evidence
+            if critical_subject_mode
+            else [item for item in evidence if item not in critical_related]
+        )
         categories = self._coverage_categories(coverage_evidence)
         editorial_plan = self._ensure_required_groups(
             editorial_plan, fallback_plan, categories
@@ -1535,7 +1246,9 @@ class LeaderReviewHarness:
             and len(critical_related) >= 2
             and len(critical_related) > topical_count
         ):
-            warnings.append("监督层发现关键人物材料占比过高，写作层需以非人物主线为主。")
+            warnings.append(
+                "监督层发现关键人物材料占比过高，写作层需以非人物主线为主。"
+            )
         if degraded_layers:
             warnings.append(
                 "监督层记录上游降级："
@@ -1548,17 +1261,6 @@ class LeaderReviewHarness:
             and len(categories) < 2
         ):
             warnings.append("监督层发现栏目覆盖偏窄，建议合并成少数厚栏目或人工补采。")
-        if (
-            request.report_type
-            in {
-                ReportType.DAILY_FOOTBALL_DIGEST,
-                ReportType.WORLD_CUP_DAILY,
-                ReportType.MATCH_PREDICTION,
-            }
-            and not enhancement.media_assets
-        ):
-            warnings.append("监督层未看到可交付的官方视频或许可图片素材。")
-
         status: LayerStatus = "degraded" if warnings else "completed"
         decision = "block" if block_generation else "approve"
         return LeaderReviewResult(
@@ -1604,14 +1306,17 @@ class LeaderReviewHarness:
                             "自然日为准；窗口外赛果或新闻只能作为背景，不得成为"
                             "当日主线。"
                             "每个栏目必须有清晰主题、category、evidence_ids、"
-                            "enrichment_targets 和 media_targets。关键人物状态只作"
-                            "事实护栏，除非用户主题就是该人物，否则不要把它规划成"
+                            "enrichment_targets；media_targets 必须为空。"
+                            "关键人物状态只作事实护栏，除非用户主题就是该人物，否则不要把它规划成"
                             "头条栏目。每个小组最多 4 轮收集/反思，失败转人工。"
                             "先判断 evidence event_state：completed_match、"
                             "upcoming_fixture、off_field、transfer。"
                             "match_report 只能使用 completed_match；"
                             "preview/arrival/kickoff/hotel/schedule/hostile reception "
                             "必须规划到 off_field 或 context。"
+                            "今日球脉是关键信息整合商，优先规划当天有变化、有影响、"
+                            "值得跟进的主线，不要为了凑栏目而穷尽所有消息。"
+                            "当前关闭图像和视频功能，不要规划图片、视频、高光或 GIF。"
                             "输出 JSON，Schema: "
                             f"{json.dumps(schema, ensure_ascii=False)}"
                         ),
@@ -1629,6 +1334,9 @@ class LeaderReviewHarness:
                                     else None
                                 ),
                                 "focus": request.focus,
+                                "daily_briefing_playbook": (
+                                    daily_briefing_playbook_payload()
+                                ),
                                 "evidence_index": evidence_index(
                                     evidence, summary_chars=420
                                 ),
@@ -1701,7 +1409,6 @@ class LeaderReviewHarness:
             members = buckets[group]
             if not members:
                 continue
-            media_targets = self._media_targets_for(group, members)
             columns.append(
                 EditorialColumnPlan(
                     column_id=group,
@@ -1712,7 +1419,7 @@ class LeaderReviewHarness:
                     evidence_ids=[item.id for item in members[:8]],
                     search_iterations=3,
                     enrichment_targets=self._enrichment_targets_for(group, members),
-                    media_targets=media_targets,
+                    media_targets=[],
                     coverage_requirements=self._coverage_requirements_for(group),
                     instructions=self._group_instruction(group),
                 )
@@ -1756,9 +1463,7 @@ class LeaderReviewHarness:
                         [*existing.enrichment_targets, *column.enrichment_targets]
                     )
                 )[:8]
-                merged_media = list(
-                    dict.fromkeys([*existing.media_targets, *column.media_targets])
-                )[:8]
+                merged_media: list[str] = []
                 merged_requirements = list(
                     dict.fromkeys(
                         [
@@ -1790,9 +1495,8 @@ class LeaderReviewHarness:
                         "coverage_requirements": column.coverage_requirements
                         or LeaderReviewHarness._coverage_requirements_for(group),
                         "instructions": column.instructions
-                        or LeaderReviewHarness._group_instruction(
-                            group
-                        ),
+                        or LeaderReviewHarness._group_instruction(group),
+                        "media_targets": [],
                     }
                 )
             )
@@ -1846,18 +1550,22 @@ class LeaderReviewHarness:
     def _group_instruction(group: str) -> str:
         return {
             "match_report": (
-                "写成战报小组：只处理已完赛证据，分比赛处理，优先补进球/VAR/终场画面，"
-                "不要把多场比赛揉成一段；赛前、抵达、开球安排和酒店接待转给场外或背景。"
+                "写成战报小组：只处理已完赛证据，分比赛处理，优先补比分、进球/VAR/红牌/点球"
+                "和晋级影响；不要把多场比赛揉成一段；赛前、抵达、开球安排和酒店接待转给场外或背景。"
+                "正文交付为【核心】【背景】【下一步】【边界】短卡片，不提出图像或视频目标。"
             ),
             "transfer_intel": (
                 "写成转会小组：必须补球员当前球队、目标球队、阶段、金额/年限"
-                "和上赛季资料；没有证据就列为补采缺口。"
+                "和证据里的角色资料；没有证据就列为补采缺口，不凭常识补赛季数据。"
             ),
             "coach_tactics": (
                 "写成教练/战术小组：区分教练动向、战术变化和球队成就，"
                 "未经官方确认的离任只能写成报道线索。"
             ),
-            "player_profile": "写成人物小组：补位置、俱乐部、赛季数据和角色。",
+            "player_profile": (
+                "写成人物小组：补位置、俱乐部、证据里的数据和角色；"
+                "只服务当天主线。"
+            ),
             "off_field": "写成场外小组：只处理球迷、政治、转播、城市和赛程影响。",
             "context": "写成背景小组：只做补充脉络，不抢头条。",
         }.get(group, "按证据整理背景，未知项要明确。")
@@ -1871,13 +1579,13 @@ class LeaderReviewHarness:
                 "只有已完赛证据才能进入战报；赛前/抵达/开球安排不得进入战报",
                 "没有事件细节时只交付已证实结果，不得用未知占位句填充正文",
                 "说明晋级、淘汰或下一场影响",
-                "绑定战报图、官方高光或人工补图目标",
+                "正文使用【核心】【背景】【下一步】【边界】短卡片，不提出图像或视频目标",
             ],
             "transfer_intel": [
                 "每条转会独立成段",
                 "写清球员、当前球队、目标球队",
                 "写清阶段：传闻、接触、报价、协议、体检、官宣或辟谣",
-                "金额、合同年限、体检时间没有证据则明确未知",
+                "金额、合同年限、体检时间没有证据则省略数字并在边界说明",
                 "至少区分 publisher_report 与 unverified_lead",
             ],
             "coach_tactics": [
@@ -1888,7 +1596,7 @@ class LeaderReviewHarness:
             "player_profile": [
                 "写清球员位置、现俱乐部和相关球队",
                 "进球、助攻、出场等数字必须来自证据",
-                "需要人物图时绑定许可图片或人工补图目标",
+                "只补与主线理解有关的人物背景，不提出图片目标",
             ],
             "off_field": [
                 "说明事件与比赛日、球迷、转播或城市影响的关系",
@@ -1912,23 +1620,6 @@ class LeaderReviewHarness:
                     )[:2]
                 )
         return list(dict.fromkeys(targets))[:6]
-
-    @staticmethod
-    def _media_targets_for(group: str, evidence: list[Evidence]) -> list[str]:
-        if group != "match_report":
-            return []
-        targets: list[str] = []
-        for item in evidence:
-            if not is_completed_match_evidence(item):
-                continue
-            teams = _known_team_names(f"{item.title} {item.summary}")
-            if len(teams) >= 2:
-                targets.append(f"{teams[0]} vs {teams[1]} match report image")
-            if re.search(
-                r"goal|scored|winner|equaliser|penalty|var", item.summary, re.I
-            ):
-                targets.append(f"{item.title} goal VAR highlight")
-        return list(dict.fromkeys(targets))[:8]
 
     @staticmethod
     def _coverage_categories(evidence: list[Evidence]) -> list[str]:
@@ -2058,9 +1749,7 @@ class ResearchHarness:
                 (
                     structured_evidence,
                     structured_warnings,
-                ) = await collect_daily_structured_match_evidence_with_warnings(
-                    request
-                )
+                ) = await collect_daily_structured_match_evidence_with_warnings(request)
             except Exception:
                 structured_evidence = []
                 structured_warnings = ["结构化赛程事实层暂时不可用，已降级为新闻证据。"]
@@ -2190,16 +1879,10 @@ class ResearchHarness:
             max_items=evidence_limit,
         )
         media_assets = EnhancementHarness._dedupe_assets(
-            [
-                asset
-                for result in column_team_results
-                for asset in result.media_assets
-            ]
+            [asset for result in column_team_results for asset in result.media_assets]
         )
         team_warnings = [
-            warning
-            for result in column_team_results
-            for warning in result.warnings
+            warning for result in column_team_results for warning in result.warnings
         ]
         source_attempts = dict(url_result.source_attempts)
         for result in column_team_results:
@@ -2252,9 +1935,7 @@ class ResearchHarness:
         layer_runs = [
             url_result.loop,
             refinement.loop,
-            initial_leader.loop.model_copy(
-                update={"label": "第三层：Leader 初始分组"}
-            ),
+            initial_leader.loop.model_copy(update={"label": "第三层：Leader 初始分组"}),
             *[result.loop for result in column_team_results],
             aggregate_enhancement.loop,
             leader_review.loop,
@@ -2432,12 +2113,12 @@ class ResearchHarness:
         request: ConsumerReportRequest, column: EditorialColumnPlan, iteration: int
     ) -> ConsumerReportRequest:
         group_terms = {
-            "match_report": "match report goals highlights scorer minute venue",
+            "match_report": "match report score scorer minute venue result impact",
             "transfer_intel": (
-                "transfer fee agreement current club target club season stats"
+                "transfer stage fee agreement current club target club player role"
             ),
             "coach_tactics": "manager coach tactics achievements future",
-            "player_profile": "player profile position club season statistics image",
+            "player_profile": "player profile position club role statistics",
             "off_field": "fans broadcast politics schedule city impact",
             "context": "football background explain context",
         }
@@ -2448,15 +2129,12 @@ class ResearchHarness:
                     column.title,
                     column.specialist_group,
                     *column.enrichment_targets,
-                    *column.media_targets,
                     *column.coverage_requirements,
                 ]
             )
         )
         retry_hint = (
-            "broaden search second source official image"
-            if iteration
-            else "primary sources latest"
+            "broaden search second source" if iteration else "primary sources latest"
         )
         subject = truncate_text(
             " ".join(
@@ -2477,9 +2155,7 @@ class ResearchHarness:
         evidence: list[Evidence],
         media_assets: list[MediaAsset],
     ) -> bool:
-        return not ResearchHarness._column_contract_gaps(
-            column, evidence, media_assets
-        )
+        return not ResearchHarness._column_contract_gaps(column, evidence, media_assets)
 
     @staticmethod
     def _column_contract_gaps(
@@ -2502,8 +2178,6 @@ class ResearchHarness:
                 text,
             ):
                 gaps.append("缺少比分、结果或关键比赛事件")
-            if column.media_targets and not media_assets:
-                gaps.append("缺少官方高光、战报图或人工补图交付")
             return gaps
         if column.specialist_group == "transfer_intel":
             if not re.search(

@@ -39,6 +39,7 @@ V3 核心设计与已实现范围见 [Agent Core V3 报告](docs/architecture/AG
 - [北京时间窗口与结构化赛程优先](docs/adr/0019-beijing-time-scope-and-structured-matches.md)
 - [Facts-first 足球日报重构](docs/adr/0020-facts-first-football-reporting.md)
 - [缺口驱动搜索与读者安全兜底](docs/adr/0021-gap-driven-search-and-reader-safe-fallback.md)
+- [Key Brief 关键信息整合框架](docs/adr/0022-key-brief-integrator-framework.md)
 - [预测模型设计](docs/ml/MATCH_PREDICTION.md)
 - [数据源与内容合规](docs/data/SOURCE_POLICY.md)
 - [外部服务配置清单](docs/admin/EXTERNAL_SERVICE_SETUP.md)

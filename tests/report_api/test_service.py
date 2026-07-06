@@ -539,8 +539,7 @@ def daily_digest_request_with_context_and_offfield_sources() -> ReportRequest:
                 {
                     "id": "aramco-worldcup",
                     "title": (
-                        "Aramco makes its presence hurt in the shadow of the "
-                        "World Cup"
+                        "Aramco makes its presence hurt in the shadow of the World Cup"
                     ),
                     "url": "https://www.theguardian.com/football/aramco",
                     "published_at": "2026-07-05T07:00:00Z",
@@ -1229,8 +1228,7 @@ def test_service_repairs_structured_scoreline_without_reading_date_as_score() ->
                 {
                     "id": "football-data-spain",
                     "title": (
-                        "结构化赛果｜Spain 3-0 Austria"
-                        "（北京时间 2026-07-03 03:00）"
+                        "结构化赛果｜Spain 3-0 Austria（北京时间 2026-07-03 03:00）"
                     ),
                     "url": "https://www.football-data.org/",
                     "published_at": "2026-07-03T16:00:00Z",
@@ -1322,7 +1320,7 @@ def test_assign_categories_requires_transfer_evidence_for_transfer_upgrade() -> 
     assert report.sections[0].category == "context"
 
 
-def test_service_injects_prefetched_media_assets() -> None:
+def test_service_suppresses_prefetched_media_assets() -> None:
     request = request_payload().model_copy(
         update={
             "prefetched_media_assets": [
@@ -1351,11 +1349,10 @@ def test_service_injects_prefetched_media_assets() -> None:
 
     result = asyncio.run(service.generate(request))
 
-    assert result.report.enrichment.media_assets
-    assert result.report.enrichment.media_assets[0].provider == "Wikimedia Commons"
+    assert result.report.enrichment.media_assets == []
 
 
-def test_service_keeps_player_image_when_target_appears_in_copy() -> None:
+def test_service_suppresses_player_image_even_when_target_appears_in_copy() -> None:
     request = ReportRequest.model_validate(
         {
             "report_type": "transfer_daily",
@@ -1393,8 +1390,7 @@ def test_service_keeps_player_image_when_target_appears_in_copy() -> None:
     output = {
         "title": "费尔南德斯加盟热刺",
         "executive_summary": (
-            "马特乌斯·费尔南德斯（Mateus Fernandes）"
-            "是热刺转会栏目的主线。"
+            "马特乌斯·费尔南德斯（Mateus Fernandes）是热刺转会栏目的主线。"
         ),
         "sections": [
             {
@@ -1419,8 +1415,7 @@ def test_service_keeps_player_image_when_target_appears_in_copy() -> None:
 
     result = asyncio.run(service.generate(request))
 
-    assert result.report.enrichment.media_assets
-    assert result.report.enrichment.media_assets[0].target == "Mateus Fernandes"
+    assert result.report.enrichment.media_assets == []
 
 
 def test_service_drops_implausible_target_image() -> None:
@@ -1457,7 +1452,7 @@ def test_service_drops_implausible_target_image() -> None:
     assert result.report.enrichment.media_assets == []
 
 
-def test_service_downgrades_timeline_media_without_timeline_event() -> None:
+def test_service_suppresses_timeline_media_without_timeline_event() -> None:
     request = request_payload().model_copy(
         update={
             "prefetched_media_assets": [
@@ -1488,8 +1483,7 @@ def test_service_downgrades_timeline_media_without_timeline_event() -> None:
 
     result = asyncio.run(service.generate(request))
 
-    assert result.report.enrichment.media_assets
-    assert result.report.enrichment.media_assets[0].placement == "section"
+    assert result.report.enrichment.media_assets == []
 
 
 def test_service_drops_prefetched_media_not_cited_by_final_report() -> None:
@@ -1692,6 +1686,10 @@ def test_daily_digest_final_editor_uses_compacted_evidence() -> None:
     assert "ev-24" in final_text
     assert "Harness 生成的确定性合稿提纲" in final_text
     assert "numeric_claim_ledger" in final_text
+    assert "daily_briefing_playbook" in final_text
+    assert "关键信息整合商" in final_text
+    assert "【核心】" in final_text
+    assert "180-420" not in final_text
     assert len(final_text) < 22_000
     assert provider.final_request.thinking_enabled is False
     assert provider.final_request.max_output_tokens == 6000
@@ -1795,8 +1793,7 @@ def test_deterministic_daily_finalizer_reroutes_upcoming_match_fallback() -> Non
                 {
                     "heading": "英格兰墨西哥城迎苦战",
                     "body": (
-                        "今日世界杯赛场，英格兰客场挑战墨西哥，"
-                        "比赛已经展开较量。"
+                        "今日世界杯赛场，英格兰客场挑战墨西哥，比赛已经展开较量。"
                     ),
                     "evidence_ids": ["england-mexico-preview"],
                     "category": "match",
@@ -1831,13 +1828,11 @@ def test_deterministic_daily_finalizer_reroutes_upcoming_match_fallback() -> Non
     assert result.model == "deterministic-daily-finalizer"
     assert "比赛已经展开较量" not in visible
     assert any(
-        section.category == "match"
-        and "france-paraguay-report" in section.evidence_ids
+        section.category == "match" and "france-paraguay-report" in section.evidence_ids
         for section in result.report.sections
     )
     assert not any(
-        section.category == "match"
-        and "england-mexico-preview" in section.evidence_ids
+        section.category == "match" and "england-mexico-preview" in section.evidence_ids
         for section in result.report.sections
     )
     assert any(
@@ -2009,6 +2004,8 @@ def test_deterministic_daily_finalizer_hides_internal_evidence_markup() -> None:
     assert "结构化赛果｜" not in visible
     assert "Australia 3-5 Egypt" in visible
     assert "Australia 4-2 Egypt" not in visible
+    assert "【核心】" in visible
+    assert "【边界】" in visible
 
 
 def test_daily_digest_recovers_final_transient_with_stable_mode() -> None:

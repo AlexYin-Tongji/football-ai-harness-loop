@@ -10,7 +10,6 @@ from services.report_api.domain import (
     ConsumerReportRequest,
     EditorialColumnPlan,
     Evidence,
-    MediaAsset,
 )
 from services.report_api.evidence import EvidenceCollectionError
 from services.report_api.providers.base import LLMRequest, LLMResult
@@ -577,7 +576,7 @@ def test_internal_layer_warnings_are_not_reader_warnings() -> None:
     assert warnings == []
 
 
-def test_enhancement_layer_prefetches_media_and_blocks_gif(monkeypatch) -> None:
+def test_enhancement_layer_filters_media_needs(monkeypatch) -> None:
     request = ConsumerReportRequest(
         report_type="transfer_daily",
         subject="Example Player transfer",
@@ -604,19 +603,6 @@ def test_enhancement_layer_prefetches_media_and_blocks_gif(monkeypatch) -> None:
     async def fake_empty(*_args, **_kwargs):
         return []
 
-    async def fake_image(*_args, **_kwargs):
-        return MediaAsset(
-            asset_type="image",
-            title="Example Player",
-            url="https://commons.wikimedia.org/wiki/File:Example_Player.jpg",
-            thumbnail_url="https://upload.wikimedia.org/example.jpg",
-            provider="Wikimedia Commons",
-            license="CC BY-SA 4.0",
-            attribution="Photographer",
-            rights_status="review_required",
-            relevance_status="metadata_match",
-        )
-
     monkeypatch.setattr(
         "services.report_api.research_harness.collect_guardian_evidence",
         fake_guardian,
@@ -633,20 +619,16 @@ def test_enhancement_layer_prefetches_media_and_blocks_gif(monkeypatch) -> None:
         "services.report_api.research_harness.collect_newsapi_evidence",
         fake_empty,
     )
-    monkeypatch.setattr(
-        "services.report_api.research_harness.search_commons_player_image",
-        fake_image,
-    )
     harness = ResearchHarness(MediaNeedProvider(), model="deepseek-v4-flash")
 
     bundle = asyncio.run(harness.collect(request, max_items=8))
 
-    assert len(bundle.media_assets) == 1
-    assert bundle.media_assets[0].provider == "Wikimedia Commons"
+    assert bundle.media_assets == []
+    assert not any("许可图片" in item for item in bundle.warnings)
     assert not any("GIF/比赛动图" in item for item in bundle.warnings)
 
 
-def test_deterministic_visual_needs_cover_each_match_story() -> None:
+def test_deterministic_visual_needs_are_disabled() -> None:
     request = ConsumerReportRequest(
         report_type="daily_football_digest",
         subject="World Cup knockout news",
@@ -686,13 +668,7 @@ def test_deterministic_visual_needs_cover_each_match_story() -> None:
         request, evidence, EnhancementPlan(needs=[])
     )
 
-    official_targets = [
-        need.target for need in plan.needs if need.kind == "official_video"
-    ]
-    assert any("Portugal vs Croatia" in target for target in official_targets)
-    assert any("Spain vs Austria" in target for target in official_targets)
-    assert any("赛事首图" in need.reason for need in plan.needs)
-    assert any("赛事栏目图" in need.reason for need in plan.needs)
+    assert plan.needs == []
 
 
 def test_leader_fallback_routes_upcoming_fixture_to_off_field() -> None:

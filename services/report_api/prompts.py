@@ -4,7 +4,7 @@ import json
 
 from services.report_api.domain import GeneratedReport, ReportRequest
 
-PROMPT_VERSION = "report-v2"
+PROMPT_VERSION = "report-v3-key-brief"
 
 
 def build_messages(
@@ -67,9 +67,7 @@ def build_messages(
     )
     if skill_instructions:
         system += "\n\n已激活的版本化 Skill：\n" + skill_instructions
-    user_payload = request.model_dump(
-        mode="json", exclude={"prefetched_media_assets"}
-    )
+    user_payload = request.model_dump(mode="json", exclude={"prefetched_media_assets"})
     user = (
         "请根据下面的 JSON 资料生成报告。match_prediction 类型必须给出 prediction；"
         "其他类型 prediction 必须为 null。\n"

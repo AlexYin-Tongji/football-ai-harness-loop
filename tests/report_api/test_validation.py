@@ -87,6 +87,21 @@ def test_numeric_claim_ledger_and_sanitizer_remove_unsupported_stage_number() ->
     assert "2-1" in body
 
 
+def test_sanitizer_allows_year_from_cited_iso_date() -> None:
+    request = base_request()
+    request.evidence[0].summary += " 北京时间 2026-07-04 02:00 开球。"
+
+    body, changed = sanitize_text_against_evidence(
+        "葡萄牙在2026年世界杯淘汰赛阶段2-1击败克罗地亚。",
+        request.evidence,
+        ["ev-match"],
+    )
+
+    assert "2026年" in body
+    assert "具体数字待复核年" not in body
+    assert "2026" not in changed
+
+
 def test_daily_gate_rejects_upcoming_fixture_written_as_today_match() -> None:
     request = ReportRequest.model_validate(
         {
@@ -256,8 +271,7 @@ def test_daily_gate_rejects_transfer_section_without_transfer_evidence() -> None
                     "published_at": "2026-07-05T07:00:00Z",
                     "source_name": "Approved publisher",
                     "summary": (
-                        "The World Cup sponsor faces community criticism "
-                        "near Houston."
+                        "The World Cup sponsor faces community criticism near Houston."
                     ),
                 }
             ],

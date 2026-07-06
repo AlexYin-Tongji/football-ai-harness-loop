@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from services.report_api.claim_ledger import build_numeric_claim_ledger
+from services.report_api.daily_briefing import daily_briefing_playbook_payload
 from services.report_api.domain import DeskDraft, Evidence, ReportRequest
 
 StageName = Literal[
@@ -27,11 +28,16 @@ class ModelStagePolicy:
 
 DAILY_FINAL_CONTRACT = {
     "title": "简体中文标题",
-    "executive_summary": "10句以内中文摘要，明确事实、传闻和未知项",
+    "executive_summary": (
+        "3-5句中文摘要，只概括今天最重要的确认事实、报道线索和关键缺口"
+    ),
     "sections": [
         {
-            "heading": "栏目标题",
-            "body": "中文正文；同一 story_cluster_id 不重复写；传闻必须显式标注",
+            "heading": "关键信息标题，不使用来源标题或调试标题",
+            "body": (
+                "按【核心】【背景】【下一步】【边界】写成短卡片；"
+                "同一 story_cluster_id 不重复写；传闻必须显式标注"
+            ),
             "evidence_ids": ["只能使用 evidence_index 中存在的 id"],
             "category": "match / transfer / off_field / context",
         }
@@ -231,6 +237,7 @@ def build_daily_final_messages(
         ],
         "evidence_index": evidence_index(request.evidence),
         "numeric_claim_ledger": build_numeric_claim_ledger(request.evidence),
+        "daily_briefing_playbook": daily_briefing_playbook_payload(),
         "Harness 生成的确定性合稿提纲": outline_json,
         "desk_drafts": compact_desk_drafts(desk_drafts),
     }
@@ -241,27 +248,34 @@ def build_daily_final_messages(
         {
             "role": "system",
             "content": (
-                "你是《今日球脉》最终总编辑。你只整理已经完成的分桌草稿和"
-                "证据索引，不重新研究，不扩写证据外事实。输出严格 JSON，"
+                "你是《今日球脉》最终总编辑。产品定位是关键信息整合商，"
+                "不是文学创作者，也不是把所有消息机械复述的新闻列表。"
+                "你只整理已经完成的分桌草稿、证据索引和 daily_briefing_playbook，"
+                "不重新研究，不扩写证据外事实。输出严格 JSON，"
                 "不要 Markdown 代码围栏。正文必须是简体中文，evidence_id "
                 "只能出现在 evidence_ids 数组里，不能写进可见正文。"
                 "report_date 是北京时间自然日；如果 payload 含 time_scope，"
                 "所有“今天/昨日/明日/近期”判断必须服从 time_scope.local_window_label、"
                 "window_start_utc、window_end_utc 和 data_cutoff_utc，"
                 "不得按服务器日期、英美发布时间或模型常识自行换日。"
-                "写作要像给球迷和内容创作者的一份清楚报告：开头抓住今天"
-                "真正变化，段落里交代球员/球队背景、比赛转折和下一步看点；"
-                "最终日报必须按 3-5 个大栏目组织，但 sections 是读者看到的二级标题；"
-                "战报栏目必须每场比赛单独一个二级标题，转会栏目必须每个重点转会"
-                "单独一个二级标题，不要把多场比赛或多条转会揉成一段。"
+                "写作目标是让读者用最短时间知道：发生了什么、为什么重要、"
+                "下一步看哪里、目前证据缺什么。最终日报必须按 3-5 条"
+                "关键信息组织，sections 是读者看到的二级标题；战报栏目必须"
+                "每场比赛单独一个 section，转会栏目必须每个重点转会单独一个"
+                " section，不要把多场比赛或多条转会揉成一段。"
                 "栏目顺序和标题优先服从 leader_editorial_plan；总标题只概括"
                 "最高优先级的主线栏目，不得把事实护栏或背景悼念写成标题钩子。"
                 "栏目优先使用 category=match、transfer、off_field 或 context；"
-                "每个二级标题正文写成 180-420 字的完整段落。"
-                "比赛事件按“何时何地、谁对谁、谁在第几分钟用什么方式进球、"
-                "比分如何变化、比赛过程和晋级/淘汰影响”写清楚，"
-                "方便前端把对应图片或官方视频插在该事件下方；"
-                "来源边界自然嵌入正文，不要把报告写成安全声明。"
+                "每个二级标题正文必须使用 daily_briefing_playbook 的短卡片结构："
+                "【核心】、【背景】、【下一步】、【边界】；没有证据支持的标签可以省略，"
+                "但不能用空话填充。比赛事件只写证据里的时间、比分、进球者、"
+                "进球方式、VAR/红牌/点球和晋级影响；结构化源没有 events 时，"
+                "只写赛果和影响，不补进球时间线。"
+                "转会必须按 playbook 的阶段梯度标注传闻、接触、报价、谈判、"
+                "原则协议、体检、签约/官宣或辟谣；证据没有金额/合同/体检就不要写数字。"
+                "人物和教练背景只服务主线理解，写身份、角色、现俱乐部或证据中"
+                "出现的履历节点，不凭常识补荣誉和赛季数据。"
+                "图像和视频功能当前关闭，不要提出配图、高光、GIF、截图或视频目标。"
                 "previous_story_memory 只用于判断“相比上一版/昨日是否有变化”，"
                 "不能单独当作事实来源；如果今天证据没有支持，不能复写成今天事实。"
                 "必须区分已完赛证据和赛前证据：preview、arrival、kickoff、hotel、schedule、"
@@ -276,9 +290,11 @@ def build_daily_final_messages(
                 "首发安排、赛程日期、主帅/队长表态和直接引语，一律不要写；"
                 "证据里没有原文引语时只能转述，不得加引号。"
                 "正文不要用“关键事件尚待确认、暂未明朗、比赛进程存疑、未知、待补充”"
-                "来填充小节；这类缺口只放 warnings。"
+                "来填充小节；真正影响读者理解的缺口写入【边界】或 warnings。"
                 "unverified_lead 必须写成传闻、据报道、未核实、线索或尚未确认。"
                 "同一 story_cluster_id 只写一次，保留重要分歧和未知项。"
+                "可见正文禁止出现 daily_briefing_playbook.forbidden_visible_text "
+                "列出的内部标记。"
                 "输出契约如下："
                 + json.dumps(DAILY_FINAL_CONTRACT, ensure_ascii=False)
                 + final_skill_contract(skill_instructions)

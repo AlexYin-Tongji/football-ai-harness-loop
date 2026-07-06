@@ -16,6 +16,12 @@ from services.report_api.claim_ledger import (
     unsupported_numeric_tokens,
 )
 from services.report_api.critical_entities import CriticalEntity, load_critical_entities
+from services.report_api.daily_briefing import (
+    BRIEF_LABELS,
+    daily_briefing_playbook_payload,
+    executive_summary_from_sections,
+    format_key_brief_body,
+)
 from services.report_api.domain import (
     DeskBrief,
     DeskDraft,
@@ -45,7 +51,6 @@ from services.report_api.evidence_state import (
     match_evidence_state,
     placeholder_copy_errors,
 )
-from services.report_api.media import collect_report_media
 from services.report_api.model_control import (
     PREDICTION_ANALYSIS_CONTRACT,
     build_daily_final_messages,
@@ -121,9 +126,7 @@ CN_MINUTE_PLAYER_ACTION_RE = re.compile(
     r"(?:破门|进球|扳平|反超|点射|头球|低射|世界波|建功)",
     re.I,
 )
-SCORE_RE = re.compile(
-    r"(?<![\d:-])(?P<score>\d{1,2}-\d{1,2})(?![\d:-])"
-)
+SCORE_RE = re.compile(r"(?<![\d:-])(?P<score>\d{1,2}-\d{1,2})(?![\d:-])")
 VISIBLE_SCORE_RE = re.compile(
     r"(?<![\d:-])(?P<home>\d{1,2})\s*[-–]\s*(?P<away>\d{1,2})(?![\d:-])"
 )
@@ -341,10 +344,7 @@ def _report_visible_text(report: GeneratedReport) -> str:
         [
             report.title,
             report.executive_summary,
-            *[
-                f"{section.heading} {section.body}"
-                for section in report.sections
-            ],
+            *[f"{section.heading} {section.body}" for section in report.sections],
         ]
     ).casefold()
 
@@ -442,9 +442,7 @@ def _ensure_prediction_analysis(report: GeneratedReport) -> None:
             evidence_ids=cited[0].evidence_ids,
         ),
         EvidenceFactor(
-            claim=(
-                "再对支持因素和反方因素分别加权，避免只按单一标题给出胜负倾向。"
-            ),
+            claim=("再对支持因素和反方因素分别加权，避免只按单一标题给出胜负倾向。"),
             evidence_ids=list(
                 dict.fromkeys(eid for item in cited for eid in item.evidence_ids)
             ),
@@ -609,9 +607,7 @@ def _repair_scorelines_by_sentence(text: str, evidence: list[Evidence]) -> str:
             continue
         source_score = _source_scoreline_for_teams(evidence, _teams_in_text(piece))
         repaired.append(
-            _replace_conflicting_scores(piece, source_score)
-            if source_score
-            else piece
+            _replace_conflicting_scores(piece, source_score) if source_score else piece
         )
     return "".join(repaired)
 
@@ -981,8 +977,7 @@ def _append_coverage_warnings(
     ):
         _append_report_warning(
             report,
-            "输入证据中没有可引用的外部公开预测，系统未补造 Opta、FIFA "
-            "或媒体概率。",
+            "输入证据中没有可引用的外部公开预测，系统未补造 Opta、FIFA 或媒体概率。",
         )
 
 
@@ -1046,12 +1041,17 @@ def _daily_editor_outline(request: ReportRequest, desk_drafts: list[DeskDraft]) 
 
     outline = {
         "editorial_contract": [
-            "整合为《今日球脉》，按 leader_editorial_plan 的优先级和栏目边界合稿。",
+            "整合为《今日球脉》关键信息简报，按 leader_editorial_plan "
+            "的优先级和栏目边界合稿。",
+            "产品角色是关键信息整合商：选择当天有变化、有影响、值得跟进的主线，不穷尽复述全部来源。",
+            "每个 section 写成【核心】【背景】【下一步】【边界】短卡片，"
+            "不写成长段落战报或视觉素材清单。",
             "总标题只概括最高优先级主线，不把事实护栏、悼念背景或低优先级线索写成标题钩子。",
             "同一 story_cluster_id 只写一次，保留不同来源的分歧。",
             "unverified_lead 必须继续标注为传闻/线索，不得升级为官宣。",
             "不要新增证据外事实；引用只能使用 evidence_ids。",
         ],
+        "daily_briefing_playbook": daily_briefing_playbook_payload(),
         "leader_editorial_plan": [
             column.model_dump(mode="json") for column in request.editorial_plan
         ],
@@ -1132,7 +1132,8 @@ def _claim_revision_hints(
             if not isinstance(section, dict):
                 continue
             evidence_ids = [
-                str(item) for item in section.get("evidence_ids") or []
+                str(item)
+                for item in section.get("evidence_ids") or []
                 if str(item) in evidence_by_id
             ]
             unsupported = unsupported_numeric_tokens(
@@ -1141,14 +1142,12 @@ def _claim_revision_hints(
             if unsupported:
                 hints.append(
                     f"小节《{section.get('heading') or ''}》的这些数字"
-                    "没有被当前引用支持："
-                    + "、".join(unsupported[:8])
+                    "没有被当前引用支持：" + "、".join(unsupported[:8])
                 )
     ledger = build_numeric_claim_ledger(request.evidence, max_entries=24)
     if ledger:
         hints.append(
-            "可用数字 claim ledger 摘要："
-            + json.dumps(ledger[:24], ensure_ascii=False)
+            "可用数字 claim ledger 摘要：" + json.dumps(ledger[:24], ensure_ascii=False)
         )
     return hints[:8]
 
@@ -1182,7 +1181,8 @@ def _structured_match_body(item: Evidence) -> str | None:
         return None
     kickoff = re.search(r"北京时间\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", item.title)
     stage = re.search(r"阶段\s*([^，。]+)", item.summary)
-    status = "已完赛" if "状态 FINISHED" in item.summary else "赛程记录"
+    winner = re.search(r"结论：([^。；，]+)", item.summary)
+    status = "已完赛" if "FINISHED" in item.summary else "赛程记录"
     pieces = []
     if kickoff:
         pieces.append(f"北京时间 {kickoff.group(1)}")
@@ -1190,13 +1190,20 @@ def _structured_match_body(item: Evidence) -> str | None:
         pieces.append(stage.group(1))
     meta = "，".join(pieces)
     prefix = f"{meta}，" if meta else ""
-    body = f"{prefix}{heading}，{status}。"
+    core = f"{prefix}{heading}，{status}"
+    next_step = ""
+    if winner:
+        next_step = f"结果方向按当前结构化证据记录为 {winner.group(1).strip()}"
+    boundary = ""
     if "当前无进球者/分钟" in item.summary or "缺少结构化进球者" in item.summary:
-        body += (
-            "当前授权结构化源未返回进球者、红黄牌、换人或分钟事件，"
-            "正文不补写进球时间线。"
+        boundary = (
+            "当前授权结构化源未返回进球者、红黄牌、换人或分钟事件，正文不补写进球时间线"
         )
-    return body
+    return format_key_brief_body(
+        core=core,
+        next_step=next_step,
+        boundary=boundary,
+    )
 
 
 def _clean_fact_from_evidence(item: Evidence) -> str:
@@ -1205,9 +1212,57 @@ def _clean_fact_from_evidence(item: Evidence) -> str:
         return structured
     title = clean_evidence_text(item.title)
     summary = clean_evidence_text(item.summary)
+    text = summary if summary and summary != title else title
+    status_label = {
+        "unverified_lead": "该线索尚未核实，不能写成确认事实",
+        "publisher_report": "这是发布方报道，后续仍需跟进官方确认或第二来源",
+        "corroborated": "仅保留当前证据包已支持的信息",
+    }.get(item.verification_status, "未在证据中出现的金额、分钟、履历不补写")
     if summary and summary != title:
-        return f"{item.source_name}报道，{summary}"
-    return f"{item.source_name}报道，{title}。"
+        return format_key_brief_body(
+            core=f"{item.source_name}报道，{text}",
+            boundary=status_label,
+        )
+    return format_key_brief_body(
+        core=f"{item.source_name}报道，{text}",
+        boundary=status_label,
+    )
+
+
+def _brief_boundary_for_items(items: list[Evidence]) -> str:
+    if any(item.verification_status == "unverified_lead" for item in items):
+        return "引用证据包含未核实线索，不能升级为确认事实"
+    if any(
+        item.evidence_kind == "structured"
+        and ("当前无进球者/分钟" in item.summary or "缺少结构化进球者" in item.summary)
+        for item in items
+    ):
+        return "当前授权结构化源未返回完整分钟事件，不补写进球时间线"
+    if any(item.verification_status == "publisher_report" for item in items):
+        return "这是发布方报道，后续仍需跟进官方确认或第二来源"
+    return "未在引用证据中出现的数字、履历和直接引语不补写"
+
+
+def _ensure_key_brief_section(
+    section: ReportSection, request: ReportRequest
+) -> ReportSection:
+    if any(f"【{label}】" in section.body for label in BRIEF_LABELS):
+        return section
+    by_id = {item.id: item for item in request.evidence}
+    cited = [
+        by_id[evidence_id]
+        for evidence_id in section.evidence_ids
+        if evidence_id in by_id
+    ]
+    body = clean_evidence_text(section.body)
+    return section.model_copy(
+        update={
+            "body": format_key_brief_body(
+                core=body,
+                boundary=_brief_boundary_for_items(cited),
+            )
+        }
+    )
 
 
 def _story_groups_for_column(
@@ -1263,9 +1318,7 @@ def _section_category_counts(sections: list[ReportSection]) -> dict[str, int]:
     return counts
 
 
-def _column_for_desk(
-    request: ReportRequest, desk: str
-) -> EditorialColumnPlan | None:
+def _column_for_desk(request: ReportRequest, desk: str) -> EditorialColumnPlan | None:
     return next(
         (column for column in request.editorial_plan if column.column_id == desk),
         None,
@@ -1361,17 +1414,14 @@ def _fallback_sections_for_column(
             heading=(
                 heading_prefix
                 if needed == 1
-                else (
-                    f"{heading_prefix}｜"
-                    f"{_shorten(evidence_heading, 48)}"
-                )
+                else (f"{heading_prefix}｜{_shorten(evidence_heading, 48)}")
             ),
             body=body,
             evidence_ids=evidence_ids,
             category=category,
         )
         sanitized, _changed = _sanitize_section_claims(section, request)
-        sections.append(sanitized)
+        sections.append(_ensure_key_brief_section(sanitized, request))
         if index >= needed:
             break
     return sections
@@ -1390,7 +1440,7 @@ def _minimal_daily_sections(request: ReportRequest) -> list[ReportSection]:
             category="context",
         )
         sanitized, _changed = _sanitize_section_claims(section, request)
-        sections.append(sanitized)
+        sections.append(_ensure_key_brief_section(sanitized, request))
     return sections
 
 
@@ -1409,7 +1459,7 @@ def _safe_daily_sections(
                     f"保守合稿已移除或泛化无证数字：{sanitized.heading} "
                     + "、".join(changed[:6])
                 )
-            sections.append(sanitized)
+            sections.append(_ensure_key_brief_section(sanitized, request))
     for column in request.editorial_plan or _fallback_daily_columns(request):
         matches = [
             section
@@ -1540,13 +1590,14 @@ def _coverage_requirements_for(group: str) -> list[str]:
             "只有已完赛证据才能进入战报；赛前、抵达、开球安排和敌意接待必须进入场外或背景",
             "没有事件细节时只写证据支持的结果，不得用未知占位句填充正文",
             "说明晋级、淘汰或下一场影响",
-            "绑定战报图、官方高光或人工补图目标",
+            "正文使用【核心】【背景】【下一步】【边界】短卡片，不提出图片或视频目标",
         ],
         "transfer_intel": [
             "每条转会独立成段",
             "写清球员、当前球队、目标球队和转会阶段",
-            "金额、合同年限、体检时间没有证据则明确未知",
+            "金额、合同年限、体检时间没有证据则省略数字并在边界说明",
             "区分 publisher_report 与 unverified_lead",
+            "按传闻/接触/报价/谈判/原则协议/体检/官宣/辟谣标注阶段",
         ],
         "coach_tactics": [
             "教练成绩或年份必须来自证据",
@@ -1554,7 +1605,7 @@ def _coverage_requirements_for(group: str) -> list[str]:
         ],
         "player_profile": [
             "球员位置、现俱乐部和数据必须来自证据",
-            "人物图只能用许可图片或人工补图目标",
+            "只补与主线理解有关的人物背景，不提出图片目标",
         ],
         "off_field": [
             "说明事件与比赛日、球迷、转播或城市影响的关系",
@@ -1570,12 +1621,12 @@ def _specialist_instruction(group: str) -> str:
             "你是战报小组。每场比赛分开处理，优先找比分、进球者、分钟、进球方式、"
             "VAR/红牌/点球等转折和下一轮影响。没有结构化事件时不要编分钟，"
             "也不要用“关键事件待确认”等占位句扩写。赛前材料只能交给场外或背景栏目。"
-            "每场至少提出一个图片目标和一个官方高光候选。"
+            "输出用【核心】【背景】【下一步】【边界】组织，不提出图片、视频或高光候选。"
         ),
         "transfer_intel": (
             "你是转会小组。每条转会必须回答：球员是谁、当前球队、目标球队、"
             "阶段、金额/合同/体检是否有证据、上赛季表现或角色。"
-            "缺任何一项就列 unknowns。"
+            "缺任何一项就列 unknowns，并在正文边界中保守说明。"
         ),
         "coach_tactics": (
             "你是教练与战术小组。区分战术变化、教练履历/成就和离任传闻；"
@@ -1824,8 +1875,7 @@ class ReportService:
                         "name": "desk_drafts_ready",
                         "payload": {
                             "desk_drafts": [
-                                draft.model_dump(mode="json")
-                                for draft in desk_drafts
+                                draft.model_dump(mode="json") for draft in desk_drafts
                             ],
                             **desk_payload,
                         },
@@ -2085,9 +2135,7 @@ class ReportService:
                     "attempt": attempt,
                     "status": "accepted",
                     "category_counts": _section_category_counts(report.sections),
-                    "attempt_summary": _attempt_summary(
-                        report.model_dump(mode="json")
-                    ),
+                    "attempt_summary": _attempt_summary(report.model_dump(mode="json")),
                 },
             )
 
@@ -2238,10 +2286,7 @@ class ReportService:
             request,
         )
         _assign_section_categories(report, request)
-        if request.prefetched_media_assets:
-            report.enrichment.media_assets = _filter_prefetched_media_assets(
-                request.prefetched_media_assets, report
-            )
+        report.enrichment.media_assets = []
         _repair_report_scorelines(report, request)
         report.warnings = _clean_report_warnings(report.warnings)
         return ReportResponse(
@@ -2271,23 +2316,8 @@ class ReportService:
         request: ReportRequest,
         progress_callback: Callable[[str, int], None] | None = None,
     ) -> None:
-        prefetched_media_assets = _filter_prefetched_media_assets(
-            list(request.prefetched_media_assets), report
-        )
-        media_assets = prefetched_media_assets
-        if self._media_enabled:
-            _emit_progress(progress_callback, "licensed_media", 90)
-            generated_media_assets = await collect_report_media(
-                report,
-                youtube_api_key=self._youtube_api_key,
-                youtube_channel_ids=list(self._youtube_channel_ids),
-            )
-            media_assets = _merge_media_assets(
-                prefetched_media_assets, generated_media_assets
-            )
-            media_assets = _filter_prefetched_media_assets(media_assets, report)
-        if media_assets:
-            report.enrichment.media_assets = media_assets
+        _ = (request, progress_callback)
+        report.enrichment.media_assets = []
 
     def _stable_final_request(
         self,
@@ -2366,9 +2396,15 @@ class ReportService:
         warnings.extend(sanitizing_warnings)
         for draft in desk_drafts:
             warnings.extend(draft.warnings)
-        summary = "；".join(_shorten(draft.summary, 450) for draft in desk_drafts)
-        if len(re.findall(r"[\u4e00-\u9fff]", summary)) < 10:
-            summary = "系统已根据完成的分栏小组草稿生成保守版今日足球消息汇总。"
+        draft_summary = "；".join(_shorten(draft.summary, 450) for draft in desk_drafts)
+        summary = executive_summary_from_sections(
+            sections,
+            fallback=(
+                draft_summary
+                if len(re.findall(r"[\u4e00-\u9fff]", draft_summary)) >= 10
+                else "系统已根据证据包生成保守版今日足球关键信息简报。"
+            ),
+        )
         try:
             report = validate_generated_report(
                 GeneratedReport(
@@ -2412,15 +2448,11 @@ class ReportService:
                     {
                         "status": "fallback_sections_prepared",
                         "section_count": len(fallback_sections),
-                        "category_counts": _section_category_counts(
-                            fallback_sections
-                        ),
+                        "category_counts": _section_category_counts(fallback_sections),
                     },
                 )
             except ReportValidationError as fallback_exc:
-                warnings.append(
-                    "证据保守小节仍未通过校验；系统已降级为最小证据摘要。"
-                )
+                warnings.append("证据保守小节仍未通过校验；系统已降级为最小证据摘要。")
                 _emit_progress(
                     progress_callback,
                     "deterministic_finalizer",
@@ -2508,13 +2540,16 @@ class ReportService:
                         {
                             "role": "system",
                             "content": (
-                                "你是今日球脉的专栏研究小组。只处理 Leader 分给"
-                                "你的栏目，不要扩写其他栏目。只输出符合 JSON Schema "
+                                "你是今日球脉的专栏研究小组。今日球脉是关键信息"
+                                "整合商，只抽取当天最重要的变化、背景和缺口。"
+                                "只处理 Leader 分给你的栏目，不要扩写其他栏目。"
+                                "只输出符合 JSON Schema "
                                 f"的对象：{brief_schema}。只能引用输入 evidence_id。"
                                 "unverified_lead 只能作为 rumor_items。每个小组最多"
                                 "4 轮内部反思；本次只输出最终结构化简报。"
                                 "必须先判断证据状态：已完赛、赛前、场外或转会。"
                                 "赛前、抵达、开球安排、酒店接待和观赛安排不能写成战报。"
+                                "图像和视频功能当前关闭，不要提出配图、GIF 或高光需求。"
                             ),
                         },
                         {
@@ -2523,13 +2558,18 @@ class ReportService:
                                 f"Column: {column.title}\n"
                                 f"Group: {column.specialist_group}\n"
                                 f"Category: {column.category}\n"
-                                f"Media targets: {column.media_targets}\n"
+                                "Media targets: disabled\n"
                                 f"Enrichment targets: {column.enrichment_targets}\n"
                                 "Coverage requirements: "
                                 f"{column.coverage_requirements}\n"
                                 f"Instruction: {instruction}\n证据：\n{evidence}"
                                 "\n可用数字 claim ledger："
                                 + json.dumps(numeric_claim_ledger, ensure_ascii=False)
+                                + "\n日报领域 playbook："
+                                + json.dumps(
+                                    daily_briefing_playbook_payload(),
+                                    ensure_ascii=False,
+                                )
                             ),
                         },
                     ],
@@ -2565,13 +2605,14 @@ class ReportService:
             )
             column_instruction = (
                 f"栏目标题：{column.title}；负责小组：{column.specialist_group}；"
-                f"栏目类别：{column.category}；媒体目标：{column.media_targets}。"
+                f"栏目类别：{column.category}；媒体目标：disabled。"
                 f"交付合同：{column.coverage_requirements}。"
                 "数字只能来自研究简报和该栏目 claim ledger；没有 ledger 支持的"
                 "比分、分钟、年份、金额、出场、进球数必须删除数字或放入 warnings。"
                 "赛前/开球/抵达/酒店/敌意接待证据只能写成赛前或场外，不得写成已完赛战报。"
-                "正文不得堆叠“关键事件待确认、暂未明朗、未知、待补充”等占位句；"
-                "缺口放入 warnings 或研究简报 unknowns。"
+                "正文必须写成【核心】【背景】【下一步】【边界】短卡片；"
+                "不得堆叠“关键事件待确认、暂未明朗、未知、待补充”等占位句；"
+                "缺口放入【边界】、warnings 或研究简报 unknowns。"
                 if column
                 else ""
             )
@@ -2591,24 +2632,28 @@ class ReportService:
                             "role": "system",
                             "content": (
                                 "你是资深中文足球编辑。根据研究简报写一个栏目草稿，"
+                                "产品角色是关键信息整合商，正文要短、清楚、有取舍。"
                                 f"只输出符合 JSON Schema 的对象：{draft_schema}。"
                                 "必须遵守 Leader 栏目合同，不要写其他栏目。"
                                 "保留逐节 evidence_ids；传闻必须用‘传闻/未核实’措辞。"
-                                "写得像给懂球但没时间刷消息的读者看的栏目：先说今天"
+                                "写得像给懂球但没时间刷消息的读者看的信息卡：先说今天"
                                 "的变化，再补人物背景、球队关联或比赛转折。事实、来源"
-                                "观点和编辑判断要分开，但不要把段落写成可信度标签堆叠。"
+                                "观点和编辑判断要分开。"
                                 "sections 是读者看到的二级标题。战报小组必须每场比赛"
                                 "单独一个 section，转会小组必须每个重点转会单独一个"
-                                " section。比赛段落按模板写：何时何地，谁和谁比赛，"
+                                " section。每个 section.body 必须使用【核心】【背景】"
+                                "【下一步】【边界】短卡片。比赛段落按模板写：何时何地，谁和谁比赛，"
                                 "谁在第几分钟用什么方式进球，比分如何变化，比赛过程"
                                 "和晋级/淘汰影响；例如“第 72 分钟，XXX 接队友传中"
                                 "头球破门，将比分改写为 2-1”。"
+                                "如果证据没有分钟或进球者，只写结果和影响，不补时间线。"
                                 "证据没有写出的发布会、社交媒体、悼念方式、首发安排、"
                                 "赛程日期、主帅/队长表态和直接引语，不要补写；"
                                 "没有原文引语时只能转述，不得加引号。"
                                 "如果引用的是赛前、抵达、开球时间、酒店接待或赛程安排，"
                                 "只能写成赛前/场外栏目；不要写“今日赛场、展开较量、最终、击败”。"
                                 "正文不要用“尚待确认/未知/待补充”扩写缺失信息。"
+                                "图像和视频功能当前关闭，不要写配图、截图、GIF、官方高光或视频目标。"
                             ),
                         },
                         {
@@ -2616,6 +2661,11 @@ class ReportService:
                             "content": column_instruction
                             + "\n可用数字 claim ledger："
                             + json.dumps(numeric_claim_ledger, ensure_ascii=False)
+                            + "\n日报领域 playbook："
+                            + json.dumps(
+                                daily_briefing_playbook_payload(),
+                                ensure_ascii=False,
+                            )
                             + "\n研究简报："
                             + brief.model_dump_json(),
                         },

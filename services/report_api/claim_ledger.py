@@ -8,6 +8,9 @@ NUMBER_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:\d{1,4}(?:[.,]\d{1,3})?)(?:-\d{1,2})?"
     r"(?:\s*(?:分钟|分|%|英镑|欧元|美元|万|亿|million|bn|m|st|nd|rd|th))?"
 )
+DATE_RE = re.compile(
+    r"\b(?P<year>20\d{2})[-/年](?P<month>\d{1,2})[-/月](?P<day>\d{1,2})"
+)
 SENTENCE_RE = re.compile(r"(?<=[。！？!?；;])\s*|\n+")
 LAST_16_RE = re.compile(r"last[-\s]?16|16\s*强|十六强", re.I)
 STORY_CLUSTER_RE = re.compile(r"事件簇\s+story-[^：:]+[:：][^。]*。?")
@@ -41,6 +44,10 @@ def meaningful_normalized_numbers(text: str) -> set[str]:
         for token in number_tokens(text)
         if len(normalized_number(token)) > 1
     }
+    for match in DATE_RE.finditer(text):
+        numbers.add(match.group("year"))
+        numbers.add(f"{int(match.group('month')):02d}")
+        numbers.add(f"{int(match.group('day')):02d}")
     numbers.discard("")
     return numbers
 
@@ -88,6 +95,7 @@ def _neutralize_token(sentence: str, token: str) -> str:
         )
     escaped = re.escape(token.strip())
     if escaped:
+        sentence = re.sub(rf"(?<!\d){escaped}\s*年", "", sentence)
         sentence = re.sub(rf"(?<!\d){escaped}(?!\d)", "具体数字待复核", sentence)
     return sentence
 
@@ -152,11 +160,7 @@ def build_numeric_claim_ledger(
         source_text = f"{item.title}。{item.summary}"
         for sentence in _split_sentences(source_text):
             tokens = list(dict.fromkeys(number_tokens(sentence)))
-            numbers = [
-                token
-                for token in tokens
-                if len(normalized_number(token)) > 1
-            ]
+            numbers = [token for token in tokens if len(normalized_number(token)) > 1]
             if not numbers:
                 continue
             ledger.append(
