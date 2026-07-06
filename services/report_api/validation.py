@@ -5,6 +5,7 @@ import re
 
 from pydantic import ValidationError
 
+from services.report_api.claim_ledger import supported_numbers_for_evidence
 from services.report_api.critical_entities import load_critical_entities
 from services.report_api.domain import (
     GeneratedReport,
@@ -94,9 +95,7 @@ def normalize_generated_output(
     return normalized
 
 
-def _source_text(
-    evidence_ids: object, evidence_by_id: dict[str, object]
-) -> str:
+def _source_text(evidence_ids: object, evidence_by_id: dict[str, object]) -> str:
     if not isinstance(evidence_ids, list):
         return ""
     return " ".join(
@@ -378,11 +377,15 @@ def _prune_unsupported_enrichment(
             if not isinstance(spotlight, dict):
                 continue
             evidence_ids = spotlight.get("evidence_ids")
-            supported_ids = [
-                item
-                for item in evidence_ids
-                if isinstance(item, str) and item in allowed_ids
-            ] if isinstance(evidence_ids, list) else []
+            supported_ids = (
+                [
+                    item
+                    for item in evidence_ids
+                    if isinstance(item, str) and item in allowed_ids
+                ]
+                if isinstance(evidence_ids, list)
+                else []
+            )
             if not (
                 isinstance(spotlight.get("name"), str)
                 and spotlight["name"].strip()
@@ -393,9 +396,11 @@ def _prune_unsupported_enrichment(
                 continue
             spotlight["evidence_ids"] = supported_ids
             related_clubs = spotlight.get("related_clubs")
-            spotlight["related_clubs"] = [
-                item for item in related_clubs if isinstance(item, str)
-            ][:4] if isinstance(related_clubs, list) else []
+            spotlight["related_clubs"] = (
+                [item for item in related_clubs if isinstance(item, str)][:4]
+                if isinstance(related_clubs, list)
+                else []
+            )
             if not isinstance(spotlight.get("media_search_name"), str):
                 spotlight["media_search_name"] = None
             if not isinstance(spotlight.get("position"), str):
@@ -441,11 +446,15 @@ def _prune_unsupported_enrichment(
             event_type = event.get("event_type")
             description = event.get("description")
             evidence_ids = event.get("evidence_ids")
-            supported_ids = [
-                item
-                for item in evidence_ids
-                if isinstance(item, str) and item in allowed_ids
-            ] if isinstance(evidence_ids, list) else []
+            supported_ids = (
+                [
+                    item
+                    for item in evidence_ids
+                    if isinstance(item, str) and item in allowed_ids
+                ]
+                if isinstance(evidence_ids, list)
+                else []
+            )
             if not (
                 isinstance(minute, str)
                 and MINUTE_RE.match(minute)
@@ -519,9 +528,7 @@ def _neutralize_unsupported_direct_quotes(
         )
         folded_source = source_text.casefold()
 
-        def replace(
-            match: re.Match[str], folded_source: str = folded_source
-        ) -> str:
+        def replace(match: re.Match[str], folded_source: str = folded_source) -> str:
             nonlocal changed
             quote = match.group(1).strip()
             if quote and quote.casefold() not in folded_source:
@@ -589,10 +596,7 @@ def _claim_integrity_errors(section: object, request: ReportRequest) -> list[str
         if (item := evidence_by_id.get(evidence_id)) is not None
     ]
     source_text = " ".join(f"{item.title} {item.summary}" for item in cited)
-    source_numbers = {
-        _normalized_number(token) for token in _number_tokens(source_text)
-    }
-    source_numbers.discard("")
+    source_numbers = supported_numbers_for_evidence(request.evidence, section_ids)
     discovery_cited = any(
         item.verification_status == "unverified_lead" for item in cited
     )
@@ -630,9 +634,7 @@ def _claim_integrity_errors(section: object, request: ReportRequest) -> list[str
                 f"'{section.heading}'"
             )
         score = SCORE_CLAIM_RE.search(sentence)
-        if score and score.group(0).replace("–", "-") not in source_text.replace(
-            "–", "-"
-        ):
+        if score and _normalized_number(score.group(0)) not in source_numbers:
             errors.append(
                 f"scoreline claim is not present in cited evidence "
                 f"for section '{section.heading}': {score.group(0)}"
@@ -670,10 +672,7 @@ def validate_generated_report(
     for section in report.sections:
         referenced_ids.update(section.evidence_ids)
         cited = [item for item in request.evidence if item.id in section.evidence_ids]
-        section_source_text = " ".join(
-            f"{item.title} {item.summary}"
-            for item in cited
-        )
+        section_source_text = " ".join(f"{item.title} {item.summary}" for item in cited)
         errors.extend(_unsupported_direct_quotes(section.body, section_source_text))
         errors.extend(_claim_integrity_errors(section, request))
         if request.report_type == ReportType.DAILY_FOOTBALL_DIGEST:

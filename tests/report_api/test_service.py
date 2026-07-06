@@ -15,7 +15,9 @@ from services.report_api.service import (
     VISIBLE_SCORE_RE,
     ReportService,
     _assign_section_categories,
+    _attach_related_structured_match_evidence,
     _repair_report_scorelines,
+    _sanitize_report_sections,
 )
 
 
@@ -1270,6 +1272,179 @@ def test_service_repairs_structured_scoreline_without_reading_date_as_score() ->
     assert "3-7" not in report.sections[0].body
 
 
+def test_service_preserves_penalty_and_regular_time_component_scores() -> None:
+    request = ReportRequest.model_validate(
+        {
+            "report_type": "daily_football_digest",
+            "subject": "今日球脉",
+            "report_date": "2026-07-04",
+            "data_cutoff": "2026-07-04T16:00:00Z",
+            "evidence": [
+                {
+                    "id": "football-data-aus-egypt",
+                    "title": (
+                        "结构化赛果｜Australia 3-5 Egypt（点球大战后；"
+                        "常规时间 1-1；点球 2-4）（北京时间 2026-07-04 02:00）"
+                    ),
+                    "url": "https://www.football-data.org/",
+                    "published_at": "2026-07-04T16:00:00Z",
+                    "source_name": "football-data.org",
+                    "source_id": "football-data-org",
+                    "trust_tier": "S1_structured_provider",
+                    "evidence_kind": "structured",
+                    "verification_status": "corroborated",
+                    "summary": (
+                        "football facts：Australia 3-5 Egypt（点球大战后；"
+                        "常规时间 1-1；点球 2-4），状态 FINISHED，结论：Egypt。"
+                    ),
+                }
+            ],
+        }
+    )
+    report = GeneratedReport.model_validate(
+        {
+            "title": "埃及 5-3 澳大利亚",
+            "executive_summary": "埃及点球大战淘汰澳大利亚。",
+            "sections": [
+                {
+                    "heading": "埃及 5-3 澳大利亚（点球 2-4）",
+                    "body": (
+                        "【核心】埃及经点球大战淘汰澳大利亚。"
+                        "【细节】常规时间1-1；点球比分2-4，"
+                        "总比分5-3（澳大利亚3-5埃及）。"
+                    ),
+                    "evidence_ids": ["football-data-aus-egypt"],
+                    "category": "match",
+                }
+            ],
+            "warnings": [],
+            "prediction": None,
+        }
+    )
+
+    _repair_report_scorelines(report, request)
+
+    visible = f"{report.sections[0].heading} {report.sections[0].body}"
+    assert "点球 2-4" in visible
+    assert "常规时间1-1" in visible
+    assert "点球比分2-4" in visible
+    assert "常规时间3-5" not in visible
+    assert "点球比分3-5" not in visible
+
+
+def test_service_attaches_related_structured_match_evidence_for_offfield_score() -> (
+    None
+):
+    request = ReportRequest.model_validate(
+        {
+            "report_type": "daily_football_digest",
+            "subject": "今日球脉",
+            "report_date": "2026-07-06",
+            "data_cutoff": "2026-07-06T12:00:00Z",
+            "evidence": [
+                {
+                    "id": "football-data-mex-eng",
+                    "title": (
+                        "结构化赛果｜Mexico 2-3 England（北京时间 2026-07-06 09:00）"
+                    ),
+                    "url": "https://www.football-data.org/",
+                    "published_at": "2026-07-06T12:00:00Z",
+                    "source_name": "football-data.org",
+                    "source_id": "football-data-org",
+                    "trust_tier": "S1_structured_provider",
+                    "evidence_kind": "structured",
+                    "verification_status": "corroborated",
+                    "summary": (
+                        "football facts：Mexico 2-3 England，状态 FINISHED，"
+                        "阶段 16强淘汰赛，结论：England。"
+                    ),
+                },
+                {
+                    "id": "tuchel-referees",
+                    "title": "'Referees just not good enough' - Tuchel anger",
+                    "url": "https://www.bbc.co.uk/sport/football/example",
+                    "published_at": "2026-07-06T11:00:00Z",
+                    "source_name": "BBC Sport Football",
+                    "summary": (
+                        "England head coach Thomas Tuchel said referees at the "
+                        "World Cup are just not good enough after the dramatic "
+                        "last-16 win over Mexico."
+                    ),
+                },
+            ],
+        }
+    )
+    report = GeneratedReport.model_validate(
+        {
+            "title": "今日球脉",
+            "executive_summary": "图赫尔批评裁判。",
+            "sections": [
+                {
+                    "heading": "图赫尔批评裁判",
+                    "body": "图赫尔在墨西哥2-3英格兰赛后批评裁判水平不足。",
+                    "evidence_ids": ["tuchel-referees"],
+                    "category": "off_field",
+                }
+            ],
+            "warnings": [],
+            "prediction": None,
+        }
+    )
+
+    _attach_related_structured_match_evidence(report, request)
+
+    assert report.sections[0].evidence_ids == [
+        "tuchel-referees",
+        "football-data-mex-eng",
+    ]
+
+
+def test_service_sanitizes_unsupported_stage_number_before_validation() -> None:
+    request = ReportRequest.model_validate(
+        {
+            "report_type": "daily_football_digest",
+            "subject": "今日球脉",
+            "report_date": "2026-07-06",
+            "data_cutoff": "2026-07-06T12:00:00Z",
+            "evidence": [
+                {
+                    "id": "queiroz-ghana",
+                    "title": "Queiroz leaves Ghana following World Cup exit",
+                    "url": "https://www.bbc.co.uk/sport/football/example",
+                    "published_at": "2026-07-06T11:00:00Z",
+                    "source_name": "BBC Sport Football",
+                    "summary": (
+                        "Carlos Queiroz steps down as Ghana head coach after "
+                        "three months in charge following their World Cup exit."
+                    ),
+                }
+            ],
+        }
+    )
+    report = GeneratedReport.model_validate(
+        {
+            "title": "今日球脉",
+            "executive_summary": "奎罗斯离任。",
+            "sections": [
+                {
+                    "heading": "奎罗斯辞去加纳帅位",
+                    "body": "奎罗斯在加纳世界杯16强出局后辞去主教练职务。",
+                    "evidence_ids": ["queiroz-ghana"],
+                    "category": "off_field",
+                }
+            ],
+            "warnings": [],
+            "prediction": None,
+        }
+    )
+
+    _sanitize_report_sections(report, request)
+
+    assert "16" not in report.sections[0].body
+    assert "淘汰赛阶段" in report.sections[0].body
+    assert any("无证数字" in warning for warning in report.warnings)
+
+
 def test_visible_score_regex_ignores_beijing_day_window() -> None:
     text = "北京时间 2026-07-03 00:00-24:00；Spain 3-0 Austria"
 
@@ -1734,7 +1909,7 @@ def test_daily_digest_deterministic_finalizer_when_coverage_still_missing() -> N
     )
 
 
-def test_daily_digest_claim_failure_recovers_with_conservative_report() -> None:
+def test_daily_digest_sanitizes_unsupported_stage_number_without_fallback() -> None:
     provider = NumericClaimFailureDailyProvider()
     events: list[tuple[str, dict | None]] = []
     service = ReportService(
@@ -1755,12 +1930,13 @@ def test_daily_digest_claim_failure_recovers_with_conservative_report() -> None:
     )
 
     visible = " ".join(section.body for section in result.report.sections)
-    assert provider.final_calls == 2
-    assert result.provider == "harness"
-    assert result.model == "deterministic-daily-finalizer"
+    assert provider.final_calls == 1
+    assert result.provider == "stub"
+    assert result.model == "deepseek-v4-pro"
     assert "16" not in visible
     assert "3-2" in visible
-    assert any(phase == "claim_repair" for phase, _payload in events)
+    assert not any(phase == "claim_repair" for phase, _payload in events)
+    assert any("泛化无证数字" in item for item in result.report.warnings)
     assert any(
         phase == "desk_drafts_ready"
         and isinstance(payload, dict)
@@ -1770,8 +1946,7 @@ def test_daily_digest_claim_failure_recovers_with_conservative_report() -> None:
     assert any(
         phase == "editor_synthesis"
         and isinstance(payload, dict)
-        and payload.get("status") == "validation_failed"
-        and payload.get("checkpoint", {}).get("name") == "editor_synthesis_attempt_1"
+        and payload.get("status") == "accepted"
         for phase, payload in events
     )
 

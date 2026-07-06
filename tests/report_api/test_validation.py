@@ -71,6 +71,55 @@ def test_claim_gate_rejects_unsupported_scoreline() -> None:
         raise AssertionError("unsupported numeric claim should fail")
 
 
+def test_claim_gate_accepts_reoriented_scoreline_from_cited_evidence() -> None:
+    output = valid_report()
+    output["sections"][0]["body"] = "克罗地亚1-2不敌葡萄牙，Ramos在第72分钟破门。"
+
+    report = validate_generated_report(output, base_request())
+
+    assert report.sections[0].body.startswith("克罗地亚1-2不敌葡萄牙")
+
+
+def test_claim_gate_accepts_million_pounds_as_ten_thousand_pounds() -> None:
+    request = ReportRequest.model_validate(
+        {
+            "report_type": "transfer_daily",
+            "subject": "转会",
+            "report_date": "2026-07-04",
+            "data_cutoff": "2026-07-04T08:00:00Z",
+            "evidence": [
+                {
+                    "id": "ev-transfer",
+                    "title": "Newcastle confirm £43m signing of Hoffenheim winger",
+                    "url": "https://example.com/transfer",
+                    "published_at": "2026-07-04T07:00:00Z",
+                    "source_name": "Approved publisher",
+                    "summary": "Newcastle confirm £43m signing of a Hoffenheim winger.",
+                    "verification_status": "publisher_report",
+                }
+            ],
+        }
+    )
+    output = {
+        "title": "纽卡斯尔完成签约",
+        "executive_summary": "纽卡斯尔完成一笔转会。",
+        "sections": [
+            {
+                "heading": "纽卡斯尔4300万英镑签下霍芬海姆边锋",
+                "body": "纽卡斯尔以4300万英镑签下霍芬海姆边锋。",
+                "evidence_ids": ["ev-transfer"],
+                "category": "transfer",
+            }
+        ],
+        "warnings": [],
+        "prediction": None,
+    }
+
+    report = validate_generated_report(output, request)
+
+    assert "4300万英镑" in report.sections[0].body
+
+
 def test_numeric_claim_ledger_and_sanitizer_remove_unsupported_stage_number() -> None:
     request = base_request()
 

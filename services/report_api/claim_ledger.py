@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 
 from services.report_api.domain import Evidence
 
@@ -38,12 +39,34 @@ def normalized_number(value: str) -> str:
     return re.sub(r"[^0-9]", "", value)
 
 
+def normalized_number_variants(token: str) -> set[str]:
+    variants = {normalized_number(token)}
+    raw = token.strip()
+    lowered = raw.casefold()
+    score = re.fullmatch(r"(\d{1,2})\s*[-–]\s*(\d{1,2})", raw)
+    if score:
+        variants.add(f"{score.group(2)}{score.group(1)}")
+    amount = re.search(r"\d{1,4}(?:[.,]\d{1,3})?", raw)
+    if amount:
+        try:
+            value = Decimal(amount.group(0).replace(",", ""))
+        except InvalidOperation:
+            value = None
+        if value is not None:
+            if re.search(r"(?:million|m\b)", lowered):
+                variants.add(str(int(value * 100)))
+            if "万" in raw and value % 100 == 0:
+                variants.add(str(int(value / 100)))
+    variants.discard("")
+    return variants
+
+
 def meaningful_normalized_numbers(text: str) -> set[str]:
-    numbers = {
-        normalized_number(token)
-        for token in number_tokens(text)
-        if len(normalized_number(token)) > 1
-    }
+    numbers: set[str] = set()
+    for token in number_tokens(text):
+        numbers.update(
+            variant for variant in normalized_number_variants(token) if len(variant) > 1
+        )
     for match in DATE_RE.finditer(text):
         numbers.add(match.group("year"))
         numbers.add(f"{int(match.group('month')):02d}")

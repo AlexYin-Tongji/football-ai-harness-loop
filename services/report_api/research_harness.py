@@ -988,20 +988,20 @@ class EnhancementHarness:
                     {
                         "role": "user",
                         "content": json.dumps(
-                    {
-                        "report_type": request.report_type.value,
-                        "subject": request.subject,
-                        "daily_briefing_playbook": (
-                            daily_briefing_playbook_payload()
-                            if request.report_type
-                            in {
-                                ReportType.DAILY_FOOTBALL_DIGEST,
-                                ReportType.TRANSFER_DAILY,
-                            }
-                            else None
-                        ),
-                        "evidence_index": evidence_index(evidence),
-                    },
+                            {
+                                "report_type": request.report_type.value,
+                                "subject": request.subject,
+                                "daily_briefing_playbook": (
+                                    daily_briefing_playbook_payload()
+                                    if request.report_type
+                                    in {
+                                        ReportType.DAILY_FOOTBALL_DIGEST,
+                                        ReportType.TRANSFER_DAILY,
+                                    }
+                                    else None
+                                ),
+                                "evidence_index": evidence_index(evidence),
+                            },
                             ensure_ascii=False,
                         ),
                     },
@@ -1552,7 +1552,7 @@ class LeaderReviewHarness:
             "match_report": (
                 "写成战报小组：只处理已完赛证据，分比赛处理，优先补比分、进球/VAR/红牌/点球"
                 "和晋级影响；不要把多场比赛揉成一段；赛前、抵达、开球安排和酒店接待转给场外或背景。"
-                "正文交付为【核心】【背景】【下一步】【边界】短卡片，不提出图像或视频目标。"
+                "正文交付为【核心】【细节】【背景】【下一步】【边界】短卡片，不提出图像或视频目标。"
             ),
             "transfer_intel": (
                 "写成转会小组：必须补球员当前球队、目标球队、阶段、金额/年限"
@@ -1563,8 +1563,7 @@ class LeaderReviewHarness:
                 "未经官方确认的离任只能写成报道线索。"
             ),
             "player_profile": (
-                "写成人物小组：补位置、俱乐部、证据里的数据和角色；"
-                "只服务当天主线。"
+                "写成人物小组：补位置、俱乐部、证据里的数据和角色；只服务当天主线。"
             ),
             "off_field": "写成场外小组：只处理球迷、政治、转播、城市和赛程影响。",
             "context": "写成背景小组：只做补充脉络，不抢头条。",
@@ -1579,7 +1578,7 @@ class LeaderReviewHarness:
                 "只有已完赛证据才能进入战报；赛前/抵达/开球安排不得进入战报",
                 "没有事件细节时只交付已证实结果，不得用未知占位句填充正文",
                 "说明晋级、淘汰或下一场影响",
-                "正文使用【核心】【背景】【下一步】【边界】短卡片，不提出图像或视频目标",
+                "正文使用【核心】【细节】【背景】【下一步】【边界】短卡片，不提出图像或视频目标",
             ],
             "transfer_intel": [
                 "每条转会独立成段",

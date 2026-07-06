@@ -130,6 +130,10 @@ SCORE_RE = re.compile(r"(?<![\d:-])(?P<score>\d{1,2}-\d{1,2})(?![\d:-])")
 VISIBLE_SCORE_RE = re.compile(
     r"(?<![\d:-])(?P<home>\d{1,2})\s*[-–]\s*(?P<away>\d{1,2})(?![\d:-])"
 )
+PRESERVED_SCORE_LABEL_RE = re.compile(
+    r"(?:常规时间|半场|点球|regular\s+time|half[-\s]?time|penalt(?:y|ies)?)\s*$",
+    re.I,
+)
 TEAM_WORDS = (
     "France",
     "Paraguay",
@@ -491,16 +495,32 @@ def _score_after(text: str) -> str | None:
     return match.group("score") if match else None
 
 
+def _visible_score_from_match(match: re.Match[str]) -> str:
+    return f"{int(match.group('home'))}-{int(match.group('away'))}"
+
+
+def _first_visible_score(text: str) -> str | None:
+    for match in VISIBLE_SCORE_RE.finditer(text):
+        home = int(match.group("home"))
+        away = int(match.group("away"))
+        if home <= 15 and away <= 15:
+            return f"{home}-{away}"
+    return None
+
+
 def _source_scoreline(evidence: list[Evidence]) -> str | None:
     counts: dict[str, int] = {}
     for item in evidence:
+        if item.evidence_kind == "structured":
+            primary_score = _first_visible_score(item.title)
+            if primary_score:
+                counts[primary_score] = counts.get(primary_score, 0) + 3
         text = f"{item.title} {item.summary}"
         for match in VISIBLE_SCORE_RE.finditer(text):
-            home = int(match.group("home"))
-            away = int(match.group("away"))
+            score = _visible_score_from_match(match)
+            home, away = (int(part) for part in score.split("-", 1))
             if home > 15 or away > 15:
                 continue
-            score = f"{home}-{away}"
             counts[score] = counts.get(score, 0) + 1
     if not counts:
         return None
@@ -573,9 +593,16 @@ def _source_scoreline_for_teams(
     return _source_scoreline(scoped)
 
 
+def _has_preserved_score_label(text: str, match: re.Match[str]) -> bool:
+    prefix = text[max(0, match.start() - 24) : match.start()]
+    return PRESERVED_SCORE_LABEL_RE.search(prefix) is not None
+
+
 def _replace_conflicting_scores(text: str, source_score: str) -> str:
     def replace(match: re.Match[str]) -> str:
-        score = f"{int(match.group('home'))}-{int(match.group('away'))}"
+        if _has_preserved_score_label(text, match):
+            return match.group(0)
+        score = _visible_score_from_match(match)
         return match.group(0) if score == source_score else source_score
 
     return VISIBLE_SCORE_RE.sub(replace, text)
@@ -592,7 +619,16 @@ def _repair_score_orientation(text: str, evidence: list[Evidence]) -> str:
     if first not in team_scores or second not in team_scores:
         return text
     expected = f"{team_scores[first]}-{team_scores[second]}"
-    return VISIBLE_SCORE_RE.sub(expected, text, count=1)
+    replaced = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal replaced
+        if replaced or _has_preserved_score_label(text, match):
+            return match.group(0)
+        replaced = True
+        return expected
+
+    return VISIBLE_SCORE_RE.sub(replace, text)
 
 
 def _repair_scorelines_by_sentence(text: str, evidence: list[Evidence]) -> str:
@@ -630,6 +666,56 @@ def _repair_report_scorelines(report: GeneratedReport, request: ReportRequest) -
         section.body = _repair_scorelines_by_sentence(section.body, cited)
         if section.body == original and source_score:
             section.body = _replace_conflicting_scores(section.body, source_score)
+
+
+def _attach_related_structured_match_evidence(
+    report: GeneratedReport, request: ReportRequest
+) -> None:
+    structured_matches = [
+        item
+        for item in request.evidence
+        if item.evidence_kind == "structured" and is_completed_match_evidence(item)
+    ]
+    if not structured_matches:
+        return
+    for section in report.sections:
+        text = f"{section.heading} {section.body}"
+        if not (VISIBLE_SCORE_RE.search(text) or MATCH_CATEGORY_RE.search(text)):
+            continue
+        section_teams = _teams_in_text(text)
+        if len(section_teams) < 2:
+            continue
+        additions: list[str] = []
+        for item in structured_matches:
+            match_teams = _teams_in_text(f"{item.title} {item.summary}")
+            if section_teams.issubset(match_teams):
+                additions.append(item.id)
+        if additions:
+            section.evidence_ids = list(
+                dict.fromkeys([*section.evidence_ids, *additions])
+            )[:8]
+
+
+def _sanitize_report_sections(report: GeneratedReport, request: ReportRequest) -> None:
+    if request.report_type != ReportType.DAILY_FOOTBALL_DIGEST:
+        return
+    warnings: list[str] = list(report.warnings)
+    sanitized_sections: list[ReportSection] = []
+    for section in report.sections:
+        if section.evidence_ids and all(
+            evidence_id.startswith("critical-") for evidence_id in section.evidence_ids
+        ):
+            sanitized_sections.append(section)
+            continue
+        sanitized, changed = _sanitize_section_claims(section, request)
+        sanitized_sections.append(sanitized)
+        if changed:
+            warnings.append(
+                f"合稿前已移除或泛化无证数字：{sanitized.heading} "
+                + "、".join(changed[:6])
+            )
+    report.sections = sanitized_sections
+    report.warnings = list(dict.fromkeys(warnings))[:12]
 
 
 def _timeline_event_from_match(
@@ -1044,7 +1130,7 @@ def _daily_editor_outline(request: ReportRequest, desk_drafts: list[DeskDraft]) 
             "整合为《今日球脉》关键信息简报，按 leader_editorial_plan "
             "的优先级和栏目边界合稿。",
             "产品角色是关键信息整合商：选择当天有变化、有影响、值得跟进的主线，不穷尽复述全部来源。",
-            "每个 section 写成【核心】【背景】【下一步】【边界】短卡片，"
+            "每个 section 写成【核心】【细节】【背景】【下一步】【边界】短卡片，"
             "不写成长段落战报或视觉素材清单。",
             "总标题只概括最高优先级主线，不把事实护栏、悼念背景或低优先级线索写成标题钩子。",
             "同一 story_cluster_id 只写一次，保留不同来源的分歧。",
@@ -1590,7 +1676,7 @@ def _coverage_requirements_for(group: str) -> list[str]:
             "只有已完赛证据才能进入战报；赛前、抵达、开球安排和敌意接待必须进入场外或背景",
             "没有事件细节时只写证据支持的结果，不得用未知占位句填充正文",
             "说明晋级、淘汰或下一场影响",
-            "正文使用【核心】【背景】【下一步】【边界】短卡片，不提出图片或视频目标",
+            "正文使用【核心】【细节】【背景】【下一步】【边界】短卡片，不提出图片或视频目标",
         ],
         "transfer_intel": [
             "每条转会独立成段",
@@ -1621,7 +1707,7 @@ def _specialist_instruction(group: str) -> str:
             "你是战报小组。每场比赛分开处理，优先找比分、进球者、分钟、进球方式、"
             "VAR/红牌/点球等转折和下一轮影响。没有结构化事件时不要编分钟，"
             "也不要用“关键事件待确认”等占位句扩写。赛前材料只能交给场外或背景栏目。"
-            "输出用【核心】【背景】【下一步】【边界】组织，不提出图片、视频或高光候选。"
+            "输出用【核心】【细节】【背景】【下一步】【边界】组织，不提出图片、视频或高光候选。"
         ),
         "transfer_intel": (
             "你是转会小组。每条转会必须回答：球员是谁、当前球队、目标球队、"
@@ -1700,13 +1786,13 @@ def _transfer_story_count(request: ReportRequest, column: EditorialColumnPlan) -
 
 
 MATCH_DETAIL_SOURCE_RE = re.compile(
-    r"\b\d{1,2}-\d{1,2}\b|"
+    r"(?<![\d:-])\d{1,2}\s*[-–]\s*\d{1,2}(?![\d:-])|"
     r"\b\d{1,3}(?:\+\d{1,2})?(?:st|nd|rd|th)[-\s]?minute\b|"
     r"\b(?:scored|goal|penalty|sent off|red card|VAR)\b",
     re.I,
 )
 MATCH_DETAIL_COPY_RE = re.compile(
-    r"\b\d{1,2}-\d{1,2}\b|"
+    r"(?<![\d:-])\d{1,2}\s*[-–]\s*\d{1,2}(?![\d:-])|"
     r"\b\d{1,3}(?:\+\d{1,2})?(?:st|nd|rd|th)[-\s]?minute\b|"
     r"第\s*\d{1,3}(?:\+\d{1,2})?\s*分钟|"
     r"进球|破门|点球|红牌|黄牌|VAR",
@@ -2043,7 +2129,9 @@ class ReportService:
             normalized_output = normalize_generated_output(last_result.output, request)
             try:
                 repair_candidate = GeneratedReport.model_validate(normalized_output)
+                _attach_related_structured_match_evidence(repair_candidate, request)
                 _repair_report_scorelines(repair_candidate, request)
+                _sanitize_report_sections(repair_candidate, request)
                 normalized_output = repair_candidate.model_dump(mode="json")
             except ValidationError:
                 pass
@@ -2610,7 +2698,7 @@ class ReportService:
                 "数字只能来自研究简报和该栏目 claim ledger；没有 ledger 支持的"
                 "比分、分钟、年份、金额、出场、进球数必须删除数字或放入 warnings。"
                 "赛前/开球/抵达/酒店/敌意接待证据只能写成赛前或场外，不得写成已完赛战报。"
-                "正文必须写成【核心】【背景】【下一步】【边界】短卡片；"
+                "正文必须写成【核心】【细节】【背景】【下一步】【边界】短卡片；"
                 "不得堆叠“关键事件待确认、暂未明朗、未知、待补充”等占位句；"
                 "缺口放入【边界】、warnings 或研究简报 unknowns。"
                 if column
@@ -2641,8 +2729,8 @@ class ReportService:
                                 "观点和编辑判断要分开。"
                                 "sections 是读者看到的二级标题。战报小组必须每场比赛"
                                 "单独一个 section，转会小组必须每个重点转会单独一个"
-                                " section。每个 section.body 必须使用【核心】【背景】"
-                                "【下一步】【边界】短卡片。比赛段落按模板写：何时何地，谁和谁比赛，"
+                                " section。每个 section.body 必须使用【核心】【细节】"
+                                "【背景】【下一步】【边界】短卡片。比赛段落按模板写：何时何地，谁和谁比赛，"
                                 "谁在第几分钟用什么方式进球，比分如何变化，比赛过程"
                                 "和晋级/淘汰影响；例如“第 72 分钟，XXX 接队友传中"
                                 "头球破门，将比分改写为 2-1”。"

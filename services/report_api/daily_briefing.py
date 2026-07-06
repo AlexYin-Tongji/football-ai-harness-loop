@@ -4,7 +4,7 @@ import re
 
 from services.report_api.domain import ReportSection
 
-BRIEF_LABELS = ("核心", "背景", "下一步", "边界")
+BRIEF_LABELS = ("核心", "细节", "背景", "下一步", "边界")
 
 DAILY_BRIEFING_PLAYBOOK = {
     "product_role": (
@@ -13,6 +13,7 @@ DAILY_BRIEFING_PLAYBOOK = {
     ),
     "section_shape": [
         "【核心】一句话说明发生了什么，只写证据支持的事实或线索。",
+        "【细节】列出证据中的比分变化、进球者、红牌、点球、转会金额/阶段或教练履历节点。",
         "【背景】只补能帮助理解该主线的球队、球员、教练或赛事语境。",
         "【下一步】写读者应继续关注的比赛、体检、官宣、复核或赛程影响；证据没有则省略。",
         "【边界】说明证据缺口、传闻状态或结构化源未覆盖的字段；不要放正文占位句。",
@@ -78,12 +79,14 @@ def ensure_sentence(value: str) -> str:
 def format_key_brief_body(
     *,
     core: str,
+    details: str = "",
     background: str = "",
     next_step: str = "",
     boundary: str = "",
 ) -> str:
     fields = [
         ("核心", core),
+        ("细节", details),
         ("背景", background),
         ("下一步", next_step),
         ("边界", boundary),
@@ -96,7 +99,7 @@ def format_key_brief_body(
 
 
 def strip_brief_labels(value: str) -> str:
-    return re.sub(r"【(?:核心|背景|下一步|边界)】", "", value).strip()
+    return re.sub(r"【(?:核心|细节|背景|下一步|边界)】", "", value).strip()
 
 
 def executive_summary_from_sections(
@@ -105,7 +108,8 @@ def executive_summary_from_sections(
     summaries: list[str] = []
     for section in sections[:4]:
         match = re.search(
-            r"【核心】(.+?)(?:【背景】|【下一步】|【边界】|$)", section.body
+            r"【核心】(.+?)(?:【细节】|【背景】|【下一步】|【边界】|$)",
+            section.body,
         )
         text = match.group(1).strip() if match else strip_brief_labels(section.body)
         if text:
