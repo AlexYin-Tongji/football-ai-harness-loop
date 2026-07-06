@@ -40,6 +40,10 @@ uvicorn services.report_api.main:app --reload
   写入人工补充提示，不会用未登记来源替代。
 - 图片/视频媒体管线默认关闭。需要重新启用时设置
   `FOOTPULSE_MEDIA_PIPELINE_ENABLED=true`，并继续遵守 Source Registry 的许可和相关性校验。
+- 当前《今日球脉》日报采用 Key Brief 结构：最终 section 必须写成
+  `【核心】【细节】【背景】【下一步】【边界】`，并由 claim gate 检查数字、
+  比分、引用和覆盖缺口。设计细节见
+  [今日球脉证据护栏与 Key Brief 设计说明](../../docs/architecture/DAILY_BRIEF_EVIDENCE_GUARDRAILS.md)。
 - 同步兼容接口和可直接提交 evidence 的调试接口默认隐藏；只有设置
   `FOOTPULSE_INTERNAL_API_ENABLED=true` 时才启用。
 - 本地任务数据库默认为 `data/footpulse.db`，不会进入 Git。
