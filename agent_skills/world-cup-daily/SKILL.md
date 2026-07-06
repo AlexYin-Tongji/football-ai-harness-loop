@@ -1,24 +1,12 @@
 ---
 name: world-cup-daily
-description: Generate a Chinese daily World Cup report from official match data and time-bounded news evidence. Use for daily recaps, qualification implications, team news, Beijing-time schedules, and viewing priorities.
+description: 把指定北京时间日界线内的世界杯赛果、赛程、晋级形势和重要消息整理为带结构化引用的中文日报。
 ---
 
-# World Cup Daily Report
+# 世界杯每日简报
 
-Use structured match data as the source of truth for fixtures, scores, tables, and kickoff times. Use news evidence only for narrative context.
+先经过五层资料流水线：URL 收集、资料精简、增强补采、Leader 全局监督和撰写交付。URL 收集层加载 `source-discovery` SKILL，优先覆盖 FIFA/UEFA/赛事官方、BBC、Guardian、Reuters、Sky、ESPN 和批准的当地发布者；GDELT/NewsAPI 只在批准域名内补充发现。Source Registry 确认来源后，由 football-data 获取赛程/赛果，FIFA 官方公告为 S0 核验依据；发现条目自身不是事实证据。Leader 层检查比赛/赛程/场外栏目是否被单一人物或单一来源挤占；覆盖坍缩时先停机转人工，不交给写作层硬写。
 
-## Workflow
+工作流：锁定北京时间窗口 → 拉取结构化比赛事实 → 发现并聚类新闻 → 将同一事件的转载合并 → 对赛果/赛程做官方或双源核验 → 生成 30 秒摘要、昨日赛果、晋级影响、今日看点 → 校验每段 evidence_id。模型最多 3 轮，工具最多 7 轮；工具 15 秒超时，模型 90 秒超时；一次修订后仍失败则交人工。
 
-1. Read official results, fixtures, stage, and qualification state.
-2. Extract and rank material news published before the cutoff.
-3. Build a 30-second summary, match recap, implications, team news, and today's Beijing-time schedule.
-4. Cite every factual section and expose conflicts or stale data.
-5. Review numbers, timezones, team identity, and evidence coverage.
-
-## Boundaries
-
-- Never calculate tables or brackets from prose when structured data exists.
-- Never treat an article prediction as a result.
-- Keep AI judgment visibly separate from facts.
-- Return a report for user editing; do not publish it.
-
+只保存标题、URL、时间、简短摘录和归一化事实，不保存完整新闻正文。不得把预测写成赛果，不得使用截止时间之后的信息。写作应先给读者今日最重要的赛事情节和转折，再附来源与未知项；不要把日报写成合规提示清单。

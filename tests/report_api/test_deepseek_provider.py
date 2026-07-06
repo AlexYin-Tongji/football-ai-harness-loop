@@ -2,8 +2,9 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
-from services.report_api.providers.base import LLMRequest
+from services.report_api.providers.base import LLMProviderError, LLMRequest
 from services.report_api.providers.deepseek import DeepSeekProvider
 
 
@@ -50,3 +51,199 @@ def test_deepseek_provider_uses_v4_json_and_thinking_contract() -> None:
     assert result.input_tokens == 12
     assert result.output_tokens == 4
     assert result.request_id == "req-123"
+
+
+def test_deepseek_provider_retries_transient_upstream_error() -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(502)
+        return httpx.Response(
+            200,
+            json={
+                "model": "deepseek-v4-flash",
+                "choices": [{"message": {"content": '{"ok":true}'}}],
+            },
+        )
+
+    provider = DeepSeekProvider(
+        api_key="test-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(
+        provider.generate_json(
+            LLMRequest(
+                purpose="test",
+                model="deepseek-v4-flash",
+                messages=[{"role": "user", "content": "Return json."}],
+                thinking_enabled=False,
+                max_output_tokens=100,
+            )
+        )
+    )
+
+    assert calls == 2
+    assert result.output == {"ok": True}
+
+
+def test_deepseek_provider_recovers_from_remote_protocol_disconnect() -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise httpx.RemoteProtocolError("upstream disconnected")
+        return httpx.Response(
+            200,
+            json={
+                "model": "deepseek-v4-pro",
+                "choices": [{"message": {"content": '{"ok":true}'}}],
+            },
+        )
+
+    provider = DeepSeekProvider(
+        api_key="test-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+        max_attempts=3,
+    )
+    result = asyncio.run(
+        provider.generate_json(
+            LLMRequest(
+                purpose="test",
+                model="deepseek-v4-pro",
+                messages=[{"role": "user", "content": "Return json."}],
+                thinking_enabled=True,
+                max_output_tokens=100,
+            )
+        )
+    )
+
+    assert calls == 3
+    assert result.output == {"ok": True}
+
+
+def test_deepseek_provider_classifies_authentication_failure() -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(401, json={"error": {"message": "Authentication Fails"}})
+
+    provider = DeepSeekProvider(
+        api_key="bad-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+        max_attempts=3,
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        asyncio.run(
+            provider.generate_json(
+                LLMRequest(
+                    purpose="test",
+                    model="deepseek-v4-pro",
+                    messages=[{"role": "user", "content": "Return json."}],
+                    thinking_enabled=True,
+                    max_output_tokens=100,
+                )
+            )
+        )
+
+    assert calls == 1
+    assert exc_info.value.kind == "authentication"
+    assert exc_info.value.status_code == 401
+
+
+def test_deepseek_provider_classifies_context_overflow() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"message": "maximum context length exceeded tokens"}},
+        )
+
+    provider = DeepSeekProvider(
+        api_key="test-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+        max_attempts=3,
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        asyncio.run(
+            provider.generate_json(
+                LLMRequest(
+                    purpose="daily_football_digest",
+                    model="deepseek-v4-pro",
+                    messages=[{"role": "user", "content": "Return json."}],
+                    thinking_enabled=True,
+                    max_output_tokens=100,
+                )
+            )
+        )
+
+    assert exc_info.value.kind == "context_overflow"
+    assert exc_info.value.status_code == 400
+
+
+def test_deepseek_provider_classifies_timeout() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow upstream response")
+
+    provider = DeepSeekProvider(
+        api_key="test-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+        max_attempts=1,
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        asyncio.run(
+            provider.generate_json(
+                LLMRequest(
+                    purpose="daily_football_digest",
+                    model="deepseek-v4-pro",
+                    messages=[{"role": "user", "content": "Return json."}],
+                    thinking_enabled=True,
+                    max_output_tokens=100,
+                )
+            )
+        )
+
+    assert exc_info.value.kind == "timeout"
+
+
+def test_deepseek_provider_extends_timeout_for_final_reasoning() -> None:
+    provider = DeepSeekProvider(
+        api_key="test-key",
+        base_url="https://api.deepseek.com",
+        timeout_seconds=10,
+    )
+    final_request = LLMRequest(
+        purpose="daily_football_digest",
+        model="deepseek-v4-pro",
+        messages=[{"role": "user", "content": "Return json."}],
+        thinking_enabled=True,
+        max_output_tokens=100,
+    )
+    desk_request = LLMRequest(
+        purpose="daily_research:match_news",
+        model="deepseek-v4-flash",
+        messages=[{"role": "user", "content": "Return json."}],
+        thinking_enabled=True,
+        max_output_tokens=100,
+    )
+
+    assert provider._timeout_for(final_request) == 240.0
+    assert provider._timeout_for(desk_request) == 10

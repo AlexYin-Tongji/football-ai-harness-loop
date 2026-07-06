@@ -1,13 +1,12 @@
 {
   "id": "match-prediction",
-  "version": "1.0.0",
+  "version": "6.0.0",
   "report_type": "match_prediction",
-  "max_model_rounds": 4,
-  "max_tool_rounds": 5,
-  "phases": ["snapshot", "balance_evidence", "judge", "validate", "review"],
-  "mcp_servers": ["football-data", "news-evidence", "source-registry"],
-  "memory_read": ["user_preferences", "source_reliability", "prediction_performance"],
-  "memory_write": ["run_summary", "prediction_snapshot", "user_feedback"],
-  "quality_gates": ["cutoff_integrity", "probability_sum", "balanced_evidence", "source_coverage", "privacy"]
+  "max_model_rounds": 10,
+  "max_tool_rounds": 20,
+  "phases": ["url_collection", "evidence_refinement", "enhancement", "leader_review", "writing_handoff", "statistical_baseline", "form_analyst", "tactical_analyst", "skeptic", "judge", "external_comparison", "licensed_media", "validate", "human_review"],
+  "mcp_servers": ["source-registry", "football-data", "sportmonks", "rss-news", "news-discovery", "media-assets"],
+  "memory_read": ["source_reliability", "prediction_calibration"],
+  "memory_write": ["run_summary", "prediction_snapshot"],
+  "quality_gates": ["cutoff_integrity", "probability_sum", "baseline_integrity", "external_prediction_source", "event_timeline_evidence", "media_rights", "balanced_evidence", "citation_integrity", "privacy"]
 }
-

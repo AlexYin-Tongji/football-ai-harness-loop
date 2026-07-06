@@ -1,13 +1,12 @@
 {
   "id": "transfer-daily",
-  "version": "1.0.0",
+  "version": "5.0.0",
   "report_type": "transfer_daily",
-  "max_model_rounds": 5,
-  "max_tool_rounds": 8,
-  "phases": ["discover", "extract", "cluster", "verify", "compose", "review"],
-  "mcp_servers": ["news-evidence", "source-registry"],
-  "memory_read": ["user_preferences", "source_reliability", "story_history"],
-  "memory_write": ["run_summary", "story_history", "user_feedback"],
-  "quality_gates": ["source_coverage", "repost_independence", "conflict_visibility", "privacy"]
+  "max_model_rounds": 10,
+  "max_tool_rounds": 20,
+  "phases": ["url_collection", "evidence_refinement", "enhancement", "leader_review", "writing_handoff", "status_transition", "draft", "licensed_media", "validate", "human_review"],
+  "mcp_servers": ["source-registry", "rss-news", "news-discovery", "sportmonks", "media-assets"],
+  "memory_read": ["source_reliability", "transfer_event_graph", "published_story_index"],
+  "memory_write": ["run_summary", "transfer_event_graph", "report_version"],
+  "quality_gates": ["source_approval", "citation_integrity", "status_vocabulary", "player_metric_evidence", "media_rights", "duplicate_story", "privacy"]
 }
-
